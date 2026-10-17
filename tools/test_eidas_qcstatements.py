@@ -6,7 +6,7 @@ class QCStatementsTests(unittest.TestCase):
     def test_qscd(self):
         self.assertEqual(parse_qc(bytes.fromhex("300a3008060604008e460104"))[0]["name"], "QcSSCD")
     def test_qctype_esign(self):
-        data=bytes.fromhex("30133011060604008e4601063009060704008e46010601")
+        data=bytes.fromhex("30153013060604008e4601063009060704008e46010601")
         result=parse_qc(data)
         self.assertEqual(result[0]["certificate_types"][0]["oid"], "0.4.0.1862.1.6.1")
     def test_qctype_rejects_missing_info(self):
