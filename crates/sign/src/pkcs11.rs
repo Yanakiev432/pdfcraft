@@ -163,6 +163,50 @@ pub fn matching_private_key_count(module_path: &std::path::Path, slot_id: u64, k
         .map_err(|e| SignError::Crypto(format!("cannot match PKCS#11 private-key objects: {e}")))?;
     Ok(matches.len())
 }
+/// Sign using the token's protected authentication interface.
+///
+/// Only trusted module paths should be passed. No PIN is accepted by PdfCraft.
+/// Invoking this operation may trigger a token consent or PIN prompt.
+/// ECDSA returns raw r||s; normalize using cms_signature before CMS embedding.
+pub fn sign_with_protected_authentication(
+    module_path: &std::path::Path,
+    slot_id: u64,
+    key_id: &[u8],
+    mechanism: Mechanism,
+    digest: DigestAlg,
+    message: &[u8],
+) -> Result<Vec<u8>, SignError> {
+    use cryptoki::object::{Attribute, ObjectClass};
+    if key_id.is_empty() {
+        return Err(SignError::Unsupported("PKCS#11 signing requires a nonempty CKA_ID".into()));
+    }
+    if !module_path.is_absolute() || !module_path.is_file() {
+        return Err(SignError::Unsupported("PKCS#11 module must be an existing absolute library path".into()));
+    }
+    let input = signing_input(mechanism, digest, message)?;
+    let context = cryptoki::context::Pkcs11::new(module_path).map_err(|e| SignError::Crypto(format!("cannot load PKCS#11 module: {e}")))?;
+    context
+        .initialize(cryptoki::context::CInitializeArgs::OsThreads)
+        .map_err(|e| SignError::Crypto(format!("cannot initialize PKCS#11 module: {e}")))?;
+    let slot = cryptoki::slot::Slot::try_from(slot_id).map_err(|e| SignError::Crypto(format!("invalid PKCS#11 slot ID: {e}")))?;
+    let token = context.get_token_info(slot).map_err(|e| SignError::Crypto(format!("cannot read PKCS#11 token information: {e}")))?;
+    if !token.protected_authentication_path() {
+        return Err(SignError::Unsupported("PKCS#11 token has no protected authentication path; application PIN entry is not supported".into()));
+    }
+    let session = context.open_ro_session(slot).map_err(|e| SignError::Crypto(format!("cannot open PKCS#11 session: {e}")))?;
+    session.login(cryptoki::session::UserType::User, None).map_err(|e| SignError::Crypto(format!("PKCS#11 protected authentication failed: {e}")))?;
+    let keys = session
+        .find_objects(&[Attribute::Class(ObjectClass::PRIVATE_KEY), Attribute::Id(key_id.to_vec()), Attribute::Sign(true)])
+        .map_err(|e| SignError::Crypto(format!("cannot locate PKCS#11 signing key: {e}")))?;
+    let [key] = keys.as_slice() else {
+        return Err(SignError::Unsupported("PKCS#11 signing requires exactly one matching signing key".into()));
+    };
+    let pkcs11_mechanism = match mechanism {
+        Mechanism::RsaPkcs => cryptoki::mechanism::Mechanism::RsaPkcs,
+        Mechanism::Ecdsa => cryptoki::mechanism::Mechanism::Ecdsa,
+    };
+    session.sign(&pkcs11_mechanism, *key, &input).map_err(|e| SignError::Crypto(format!("PKCS#11 C_Sign failed: {e}")))
+}
 #[cfg(test)]
 mod tests {
     use super::*;
