@@ -1167,6 +1167,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "craft-signing-core"
+version = "0.1.0"
+source = "git+https://github.com/Yanakiev432/craft-signing-core.git?rev=8839136#8839136b5d9e24b6c3a5c6274ed28e7007a4160e"
+dependencies = [
+ "rustls-cng",
+ "sha2 0.10.9",
+]
+
+[[package]]
 name = "craft-ui"
 version = "0.1.0"
 source = "git+https://github.com/storytold/craft-libs?rev=5c874d51eeb3de70e735c8ce87a59a7dedd47675#5c874d51eeb3de70e735c8ce87a59a7dedd47675"
@@ -4345,6 +4354,7 @@ dependencies = [
  "bp256",
  "bp384",
  "cbc",
+ "craft-signing-core",
  "crypto-bigint",
  "cryptoki",
  "des",
