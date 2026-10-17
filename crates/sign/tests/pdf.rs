@@ -1386,6 +1386,29 @@ impl Drop for Certificates {
     }
 }
 
+/// One explicitly authorized hardware signing attempt. No PIN is handled by PdfCraft.
+/// Run only in an interactive user session where the vendor PIN UI is visible.
+#[cfg(windows)]
+#[test]
+#[ignore = "real hardware signature: requires explicit authorization and interactive vendor PIN UI"]
+fn opt_in_real_windows_token_sign_once() {
+    let reference = std::env::var("PDFCRAFT_REAL_SIGN_REFERENCE").expect("selected windows:<sha256> reference");
+    assert!(reference.starts_with("windows:") && reference.len() == 72, "require explicit windows SHA-256 reference");
+    let output = std::env::var("PDFCRAFT_REAL_SIGN_OUTPUT").expect("explicit output PDF path");
+    let target = std::path::Path::new(&output);
+    assert!(!target.exists(), "refuse to overwrite existing output");
+    let id = pdfcraft_sign::windows::find(&reference).expect("selected identity");
+    let mut options = SignOptions::default();
+    options.field = Some("Approval".into());
+    options.reason = Some("PdfCraft hardware signing integration test".into());
+    options.date = format!("D:{}Z", std::env::var("PDFCRAFT_REAL_SIGN_UTC").expect("explicit UTC signing date"));
+    let signed = pdfcraft_sign::sign(&open(&fixture()), &id, &options).expect("one signing attempt");
+    let validation = signatures(&open(&signed), &signed, &TrustStore { certs: vec![id.certificate.clone()] });
+    let signature = validation.iter().find(|s| s.signed).expect("signed field");
+    assert_eq!(signature.status, Status::Valid, "{:?}", signature.details);
+    std::fs::write(target, signed).expect("write signed test PDF");
+    println!("signed_test_pdf={} cryptographic_validation=valid", target.display());
+}
 /// Uses only newly created software-backed CNG keys, removed even when signing fails.
 #[cfg(windows)]
 #[test]
