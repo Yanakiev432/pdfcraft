@@ -76,3 +76,57 @@ mod tests {
         assert_eq!(e.assess(), Qualification::NotQualified);
     }
 }
+
+/// Build a conservative preliminary evidence report from PdfCraft's existing
+/// signature verification. This is NOT an eIDAS qualification decision:
+/// trusted-list and QSCD verification require separate authenticated inputs.
+pub fn from_signature(info: &crate::pdf::SignatureInfo) -> QualificationEvidence {
+    use crate::pdf::Status;
+    let has = |message: &str| info.details.iter().any(|d| d.message == message);
+    let integrity = match info.status {
+        Status::Invalid => Evidence::Rejected,
+        Status::Valid => Evidence::Confirmed,
+        Status::Unknown => Evidence::Unavailable,
+    };
+    let certificate_path = if has("The signer's identity is valid.") {
+        Evidence::Confirmed
+    } else {
+        Evidence::Unavailable
+    };
+    let revocation = if info.details.iter().any(|d| d.message.starts_with("The signer's certificate has been revoked (")) {
+        Evidence::Rejected
+    } else if has("The document's embedded revocation information shows that the signer's certificate has not been revoked.") {
+        Evidence::Confirmed
+    } else {
+        Evidence::Unavailable
+    };
+    QualificationEvidence {
+        cryptographic_integrity: integrity,
+        certificate_path,
+        revocation,
+        trusted_time: if info.timestamp_time.is_some() { Evidence::Confirmed } else { Evidence::Unavailable },
+        eu_trusted_service: Evidence::Unavailable,
+        qualified_certificate_and_qscd: Evidence::Unavailable,
+    }
+}
+
+#[cfg(test)]
+mod integration_tests {
+    use super::*;
+    #[test]
+    fn a_valid_signature_still_requires_eu_evidence() {
+        let mut info = crate::pdf::SignatureInfo {
+            field: String::new(), signed: true, page: None, rect: None, visible: false,
+            signer: None, certificate: None, chain: Vec::new(), date: None,
+            signing_time: None, reason: None, location: None, contact: None,
+            sub_filter: None, doc_timestamp: false, certify: None, revision: 1,
+            signed_len: 0, digest: None, algorithm: None, timestamp: false,
+            timestamp_time: None, status: crate::pdf::Status::Valid,
+            modification: crate::pdf::Modification::None, details: Vec::new(),
+        };
+        assert_eq!(from_signature(&info).assess(), Qualification::Indeterminate);
+        assert_eq!(from_signature(&info).trusted_time, Evidence::Unavailable);
+        info.status = crate::pdf::Status::Invalid;
+        assert_eq!(from_signature(&info).assess(), Qualification::NotQualified);
+    }
+}
