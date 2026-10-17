@@ -2219,7 +2219,18 @@ impl PdfCraftApp {
 
     /// Serialize the user's persistent state (recent files, theme). Local only.
     pub fn persist(&self) -> String {
-        let trusted: Vec<String> = self.session.trusted_certificates().iter().map(pdfcraft_engine::sign::x509::to_pem).collect();
+        // Windows Root certificates are supplied by the OS at runtime, not user overrides.
+        // Never persist them as independently trusted roots: OS removal must take effect.
+        #[cfg(target_os = "windows")]
+        let os_roots = pdfcraft_engine::sign::windows::trusted_roots().unwrap_or_default();
+        let trusted: Vec<String> = self.session.trusted_certificates().iter()
+            .filter(|cert| {
+                #[cfg(target_os = "windows")]
+                { !os_roots.iter().any(|root| root.raw == cert.raw) }
+                #[cfg(not(target_os = "windows"))]
+                { true }
+            })
+            .map(pdfcraft_engine::sign::x509::to_pem).collect();
         let mut v = serde_json::json!({
             "docking": self.docking,
             "docking_left_open": self.left_open,
