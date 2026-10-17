@@ -285,6 +285,25 @@ mod tests {
             assert!(!cert.der.is_empty());
         }
     }
+    /// Read-only object lookup; no private key is exported or used.
+    #[test]
+    #[ignore = "requires trusted attached token and public CKA_ID metadata"]
+    fn opt_in_token_certificate_key_id_lookup() {
+        let path = std::env::var("PDFCRAFT_TEST_PKCS11_MODULE").expect("set trusted module path");
+        let module = std::path::Path::new(&path);
+        let certs = discover_certificates(module).expect("public certificate enumeration must succeed");
+        assert!(!certs.is_empty(), "expected a publicly visible certificate");
+        let mut eligible = 0usize;
+        for cert in &certs {
+            if cert.key_id.is_empty() {
+                continue;
+            }
+            eligible += 1;
+            let count = matching_private_key_count(module, cert.slot_id, &cert.key_id).expect("read-only private-key object lookup must succeed");
+            assert!(count <= 1, "ambiguous private-key CKA_ID mapping");
+        }
+        assert!(eligible > 0, "no public certificate has CKA_ID metadata");
+    }
     #[test]
     fn adapter_rejects_unsupported_key_and_empty_identity_without_loading_module() {
         use crate::keys::PublicKey;
