@@ -86,6 +86,60 @@ pub fn discover_slots(module_path: &std::path::Path) -> Result<Vec<TokenSlot>, S
     let slots = context.get_slots_with_token().map_err(|e| SignError::Crypto(format!("cannot enumerate PKCS#11 slots: {e}")))?;
     Ok(slots.into_iter().map(|slot| TokenSlot { slot_id: slot.id() }).collect())
 }
+/// Public X.509 certificate bytes and token-local identity metadata.
+/// The DER value is a public certificate, never a private key.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TokenCertificate {
+    pub slot_id: u64,
+    pub key_id: Vec<u8>,
+    pub label: Vec<u8>,
+    pub der: Vec<u8>,
+}
+
+/// List publicly accessible certificate objects without logging in.
+///
+/// Some devices hide certificates until login; an empty result does not prove
+/// that the token has no certificates. Never read private-key attributes here.
+pub fn discover_certificates(module_path: &std::path::Path) -> Result<Vec<TokenCertificate>, SignError> {
+    use cryptoki::object::{Attribute, AttributeType, ObjectClass};
+
+    if !module_path.is_absolute() || !module_path.is_file() {
+        return Err(SignError::Unsupported("PKCS#11 module must be an existing absolute library path".into()));
+    }
+    let context = cryptoki::context::Pkcs11::new(module_path).map_err(|e| SignError::Crypto(format!("cannot load PKCS#11 module: {e}")))?;
+    context
+        .initialize(cryptoki::context::CInitializeArgs::OsThreads)
+        .map_err(|e| SignError::Crypto(format!("cannot initialize PKCS#11 module: {e}")))?;
+
+    let slots = context.get_slots_with_token().map_err(|e| SignError::Crypto(format!("cannot enumerate PKCS#11 slots: {e}")))?;
+    let mut certificates = Vec::new();
+    for slot in slots {
+        let session = context.open_ro_session(slot).map_err(|e| SignError::Crypto(format!("cannot open PKCS#11 read-only session: {e}")))?;
+        let objects = session
+            .find_objects(&[Attribute::Class(ObjectClass::CERTIFICATE)])
+            .map_err(|e| SignError::Crypto(format!("cannot find PKCS#11 certificate objects: {e}")))?;
+        for object in objects {
+            let attrs = session
+                .get_attributes(object, &[AttributeType::Id, AttributeType::Label, AttributeType::Value])
+                .map_err(|e| SignError::Crypto(format!("cannot read PKCS#11 certificate attributes: {e}")))?;
+            let mut key_id = Vec::new();
+            let mut label = Vec::new();
+            let mut der = Vec::new();
+            for attr in attrs {
+                match attr {
+                    Attribute::Id(v) => key_id = v,
+                    Attribute::Label(v) => label = v,
+                    Attribute::Value(v) => der = v,
+                    _ => {}
+                }
+            }
+            if !der.is_empty() {
+                certificates.push(TokenCertificate { slot_id: slot.id(), key_id, label, der });
+            }
+        }
+    }
+    Ok(certificates)
+}
 #[cfg(test)]
 mod tests {
     use super::*;
