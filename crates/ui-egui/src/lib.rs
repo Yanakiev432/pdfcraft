@@ -3212,6 +3212,38 @@ impl PdfCraftApp {
 mod trust_persistence_tests {
     use super::PdfCraftApp;
 
+    fn fixture_cert() -> pdfcraft_engine::sign::Certificate {
+        let pem = include_bytes!("../../sign/tests/data/ca.crt.pem");
+        pdfcraft_engine::sign::x509::load_certificates(pem).unwrap().remove(0)
+    }
+
+    #[test]
+    fn explicit_user_trust_survives_save_and_restore() {
+        let mut app = PdfCraftApp::new();
+        let cert = fixture_cert();
+        app.trust_certificate(cert.clone());
+        app.trust_certificate(cert.clone());
+        let saved: serde_json::Value = serde_json::from_str(&app.persist()).unwrap();
+        assert_eq!(saved["trusted"].as_array().unwrap().len(), 1);
+        let mut restored = PdfCraftApp::new();
+        restored.restore(&saved.to_string());
+        assert!(restored.session.trusted_certificates().iter().any(|c| c.raw == cert.raw));
+        let again: serde_json::Value = serde_json::from_str(&restored.persist()).unwrap();
+        assert_eq!(again["trusted"], saved["trusted"]);
+    }
+
+    #[test]
+    fn legacy_user_trust_is_migrated() {
+        let mut legacy_app = PdfCraftApp::new();
+        legacy_app.trust_certificate(fixture_cert());
+        let mut legacy: serde_json::Value = serde_json::from_str(&legacy_app.persist()).unwrap();
+        legacy.as_object_mut().unwrap().remove("trusted_source_version");
+        let mut restored = PdfCraftApp::new();
+        restored.restore(&legacy.to_string());
+        let saved: serde_json::Value = serde_json::from_str(&restored.persist()).unwrap();
+        assert_eq!(saved["trusted_source_version"], 2);
+        assert_eq!(saved["trusted"], legacy["trusted"]);
+    }
     #[test]
     fn saved_trust_format_is_versioned_and_stable_on_restore() {
         let app = PdfCraftApp::new();
