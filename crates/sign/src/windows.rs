@@ -233,6 +233,19 @@ fn describe(e: &CngError) -> String {
 mod tests {
     use super::*;
 
+    /// Opt-in read-only CNG inventory: never requests a PIN or signs.
+    #[test]
+    #[ignore = "requires an interactive Windows certificate store"]
+    fn opt_in_silent_identity_inventory() {
+        let listing = list().expect("silent Windows certificate inventory");
+        println!("usable={} unusable={}", listing.ids.len(), listing.unusable.len());
+        for id in &listing.ids {
+            println!("usable_certificate_ref={}", reference(&id.certificate));
+        }
+        for item in &listing.unusable {
+            println!("unusable_reason={}", item.reason);
+        }
+    }
     #[test]
     fn errors_are_explained_with_their_code() {
         assert_eq!(
