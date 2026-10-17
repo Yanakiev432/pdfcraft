@@ -43,6 +43,17 @@ def parse_qc(data):
         identifier=oid(raw)
         items.append({"oid": identifier, "name": KNOWN.get(identifier, "unknown"),
                       "statement_info_present": next_pos < len(statement)})
+        if identifier == "0.4.0.1862.1.6":
+            if next_pos == len(statement): raise ValueError("QcType missing statementInfo")
+            info_tag, info, info_end = tlv(statement, next_pos)
+            if info_tag != 0x30 or info_end != len(statement): raise ValueError("QcType malformed statementInfo")
+            types=[]; i=0
+            while i < len(info):
+                kind, encoded, i = tlv(info, i)
+                if kind != 0x06: raise ValueError("QcType requires OID entries")
+                types.append(oid(encoded))
+            if not types or len(types) != len(set(types)): raise ValueError("QcType missing or duplicated types")
+            items[-1]["certificate_types"] = [{"oid": t, "name": KNOWN.get(t,"unknown")} for t in types]
     return items
 def inspect(path):
     data=Path(path).read_bytes()
@@ -56,7 +67,7 @@ def inspect(path):
         items=parse_qc(extension.value.value)
         results.append({"qc_statements": items, "qc_compliance_declared": any(x["oid"]=="0.4.0.1862.1.1" for x in items),
                         "qscd_declared": any(x["oid"]=="0.4.0.1862.1.4" for x in items),
-                        "qc_esign_type_declared": any(x["oid"]=="0.4.0.1862.1.6" for x in items),
+                        "qc_esign_type_declared": any(t["oid"]=="0.4.0.1862.1.6.1" for x in items for t in x.get("certificate_types", [])),
                         "qscd_independently_verified": False, "qualification": "Indeterminate"})
     return results
 if __name__ == "__main__":
