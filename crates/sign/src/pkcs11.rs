@@ -62,10 +62,40 @@ pub fn signing_input(mechanism: Mechanism, digest: DigestAlg, message: &[u8]) ->
 pub fn cms_signature(public: &crate::keys::PublicKey, raw: &[u8]) -> Result<Vec<u8>, SignError> {
     public.store_signature_der(raw)
 }
+/// A token slot discovered from an explicitly supplied PKCS#11 module.
+///
+/// Discovery never logs in, reads a private key, or calls C_Sign.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TokenSlot {
+    pub slot_id: u64,
+}
+
+/// Enumerate slots containing tokens using a caller-selected module library.
+///
+/// Loading a native PKCS#11 module executes vendor code in the process.
+/// Only pass an explicitly trusted library path; never accept arbitrary paths
+/// from PDF files, identity references, or untrusted remote input.
+pub fn discover_slots(module_path: &std::path::Path) -> Result<Vec<TokenSlot>, SignError> {
+    if !module_path.is_absolute() || !module_path.is_file() {
+        return Err(SignError::Unsupported("PKCS#11 module must be an existing absolute library path".into()));
+    }
+    let context = cryptoki::context::Pkcs11::new(module_path).map_err(|e| SignError::Crypto(format!("cannot load PKCS#11 module: {e}")))?;
+    context
+        .initialize(cryptoki::context::CInitializeArgs::OsThreads)
+        .map_err(|e| SignError::Crypto(format!("cannot initialize PKCS#11 module: {e}")))?;
+    let slots = context.get_slots_with_token().map_err(|e| SignError::Crypto(format!("cannot enumerate PKCS#11 slots: {e}")))?;
+    Ok(slots.into_iter().map(|slot| TokenSlot { slot_id: slot.id() }).collect())
+}
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    #[test]
+    fn discovery_rejects_missing_or_relative_module_paths() {
+        assert!(discover_slots(std::path::Path::new("vendor-pkcs11.dll")).is_err());
+        let missing = std::env::temp_dir().join("pdfcraft-nonexistent-pkcs11-module-verify.dll");
+        assert!(discover_slots(&missing).is_err());
+    }
     #[test]
     fn mechanism_ids_match_cryptoki() {
         assert_eq!(Mechanism::RsaPkcs.id(), 0x0000_0001);
