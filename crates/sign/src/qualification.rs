@@ -287,3 +287,80 @@ mod provenance_tests {
         assert_eq!(with_verified_trusted_list(b, finding(), provenance()).assess(), Qualification::NotQualified);
     }
 }
+/// The preliminary PDF report may consume independently verified revocation
+/// evidence only after the verifier has authenticated issuer, scope, response
+/// signature, certificate identity and a trusted evaluation time.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct RevocationProvenance {
+    pub issuer_chain_verified: bool,
+    pub response_signature_verified: bool,
+    pub certificate_identity_verified: bool,
+    pub scope_and_freshness_verified: bool,
+    pub trusted_evaluation_time: bool,
+}
+
+impl RevocationProvenance {
+    pub const fn fully_verified(self) -> bool {
+        self.issuer_chain_verified && self.response_signature_verified
+            && self.certificate_identity_verified && self.scope_and_freshness_verified
+            && self.trusted_evaluation_time
+    }
+}
+
+pub fn with_verified_revocation(
+    mut preliminary: QualificationEvidence,
+    finding: Evidence,
+    provenance: RevocationProvenance,
+) -> QualificationEvidence {
+    if provenance.fully_verified() {
+        preliminary.revocation = finding;
+    } else if preliminary.revocation != Evidence::Rejected {
+        preliminary.revocation = Evidence::Unavailable;
+    }
+    preliminary
+}
+
+#[cfg(test)]
+mod revocation_provenance_tests {
+    use super::*;
+    fn baseline() -> QualificationEvidence {
+        QualificationEvidence {
+            cryptographic_integrity: Evidence::Confirmed,
+            certificate_path: Evidence::Confirmed,
+            revocation: Evidence::Unavailable,
+            trusted_time: Evidence::Unavailable,
+            eu_trusted_service: Evidence::Unavailable,
+            qualified_certificate_and_qscd: Evidence::Unavailable,
+        }
+    }
+    fn provenance() -> RevocationProvenance {
+        RevocationProvenance {
+            issuer_chain_verified: true, response_signature_verified: true,
+            certificate_identity_verified: true, scope_and_freshness_verified: true,
+            trusted_evaluation_time: true,
+        }
+    }
+    #[test]
+    fn all_revocation_provenance_fields_required() {
+        let p = provenance();
+        assert_eq!(with_verified_revocation(baseline(), Evidence::Confirmed, p).revocation, Evidence::Confirmed);
+        let mut cases = [p; 5];
+        cases[0].issuer_chain_verified = false;
+        cases[1].response_signature_verified = false;
+        cases[2].certificate_identity_verified = false;
+        cases[3].scope_and_freshness_verified = false;
+        cases[4].trusted_evaluation_time = false;
+        for missing in cases {
+            assert_eq!(with_verified_revocation(baseline(), Evidence::Confirmed, missing).revocation, Evidence::Unavailable);
+        }
+    }
+    #[test]
+    fn negative_revocation_is_not_overwritten_by_missing_provenance() {
+        let mut e = baseline();
+        e.revocation = Evidence::Rejected;
+        let mut p = provenance();
+        p.trusted_evaluation_time = false;
+        assert_eq!(with_verified_revocation(e, Evidence::Confirmed, p).revocation, Evidence::Rejected);
+        assert_eq!(with_verified_revocation(baseline(), Evidence::Rejected, provenance()).assess(), Qualification::NotQualified);
+    }
+}
