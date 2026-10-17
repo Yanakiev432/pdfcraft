@@ -364,3 +364,112 @@ mod revocation_provenance_tests {
         assert_eq!(with_verified_revocation(baseline(), Evidence::Rejected, provenance()).assess(), Qualification::NotQualified);
     }
 }
+/// Strict JSON intake for the offline revocation report v1. No JSON field may
+/// independently assert trusted chain/time or upgrade qualification.
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RevocationReportV1 {
+    schema: String,
+    evaluation_time_claim: String,
+    evaluation_time_trusted: bool,
+    issuer_path_verified: bool,
+    inputs_sha256: serde_json::Value,
+    crl: serde_json::Value,
+    ocsp: serde_json::Value,
+    combined_observation: String,
+    rust_revocation_provenance: RevocationReportProvenance,
+    rust_admissible_revocation: String,
+    qualification: String,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RevocationReportProvenance {
+    issuer_chain_verified: bool,
+    response_signature_verified: bool,
+    certificate_identity_verified: bool,
+    scope_and_freshness_verified: bool,
+    trusted_evaluation_time: bool,
+}
+
+/// The report is advisory until an independent native trust/time verifier is
+/// wired in. A positive JSON claim cannot authorize a revocation finding.
+pub fn from_offline_revocation_report(
+    preliminary: QualificationEvidence, json: &str,
+) -> Result<QualificationEvidence, String> {
+    const MAX_REPORT_BYTES: usize = 262_144;
+    if json.len() > MAX_REPORT_BYTES { return Err("revocation report exceeds size limit".into()); }
+    let report: RevocationReportV1 = serde_json::from_str(json).map_err(|_| "invalid revocation report schema")?;
+    if report.schema != "pdfcraft.eidas.revocation-evidence.v1"
+        || report.evaluation_time_claim.is_empty()
+        || report.evaluation_time_trusted || report.issuer_path_verified
+        || report.rust_revocation_provenance.issuer_chain_verified
+        || report.rust_revocation_provenance.trusted_evaluation_time
+        || report.rust_admissible_revocation != "Unavailable"
+        || report.qualification != "Indeterminate"
+        || report.combined_observation.is_empty()
+        || !report.inputs_sha256.is_object()
+        || !report.crl.is_object() || !report.ocsp.is_object()
+    { return Err("untrusted or incompatible revocation report".into()); }
+    let _observed = (
+        report.rust_revocation_provenance.response_signature_verified,
+        report.rust_revocation_provenance.certificate_identity_verified,
+        report.rust_revocation_provenance.scope_and_freshness_verified,
+    );
+    Ok(with_verified_revocation(
+        preliminary, Evidence::Unavailable,
+        RevocationProvenance {
+            issuer_chain_verified: false, response_signature_verified: false,
+            certificate_identity_verified: false, scope_and_freshness_verified: false,
+            trusted_evaluation_time: false,
+        },
+    ))
+}
+
+#[cfg(test)]
+mod offline_report_tests {
+    use super::*;
+    fn preliminary() -> QualificationEvidence {
+        QualificationEvidence {
+            cryptographic_integrity: Evidence::Confirmed, certificate_path: Evidence::Unavailable,
+            revocation: Evidence::Unavailable, trusted_time: Evidence::Unavailable,
+            eu_trusted_service: Evidence::Unavailable, qualified_certificate_and_qscd: Evidence::Unavailable,
+        }
+    }
+    fn report() -> String {
+        serde_json::json!({
+            "schema":"pdfcraft.eidas.revocation-evidence.v1",
+            "evaluation_time_claim":"2026-10-17T20:45:00Z",
+            "evaluation_time_trusted":false,"issuer_path_verified":false,
+            "inputs_sha256":{},"crl":{},"ocsp":{},
+            "combined_observation":"ConcordantGoodAtEvaluationTime",
+            "rust_revocation_provenance":{
+                "issuer_chain_verified":false,"response_signature_verified":true,
+                "certificate_identity_verified":true,"scope_and_freshness_verified":true,
+                "trusted_evaluation_time":false
+            },
+            "rust_admissible_revocation":"Unavailable","qualification":"Indeterminate"
+        }).to_string()
+    }
+    #[test]
+    fn valid_report_cannot_promote_qes() {
+        let result = from_offline_revocation_report(preliminary(), &report());
+        assert!(matches!(result, Ok(e) if e.revocation == Evidence::Unavailable && e.assess() == Qualification::Indeterminate));
+    }
+    #[test]
+    fn forged_trust_flags_are_rejected() {
+        for (field, value) in [("evaluation_time_trusted", true), ("issuer_path_verified", true)] {
+            let mut doc: serde_json::Value = serde_json::from_str(&report()).unwrap_or_default();
+            doc[field] = serde_json::json!(value);
+            assert!(from_offline_revocation_report(preliminary(), &doc.to_string()).is_err());
+        }
+        let mut doc: serde_json::Value = serde_json::from_str(&report()).unwrap_or_default();
+        doc["rust_revocation_provenance"]["issuer_chain_verified"] = serde_json::json!(true);
+        assert!(from_offline_revocation_report(preliminary(), &doc.to_string()).is_err());
+    }
+    #[test]
+    fn invalid_or_oversized_json_is_rejected() {
+        assert!(from_offline_revocation_report(preliminary(), "{}").is_err());
+        assert!(from_offline_revocation_report(preliminary(), &"x".repeat(262_145)).is_err());
+    }
+}
