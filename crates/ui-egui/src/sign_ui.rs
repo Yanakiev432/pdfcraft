@@ -524,6 +524,9 @@ impl PdfCraftApp {
 
     /// Trust a certificate (Signatures panel ▸ Add to trusted certificates), revalidating.
     pub fn trust_certificate(&mut self, cert: Certificate) {
+        if !self.user_trusted_certificates.iter().any(|c| c.raw == cert.raw) {
+            self.user_trusted_certificates.push(cert.clone());
+        }
         let mut certs = self.session.trusted_certificates().to_vec();
         if !certs.iter().any(|c| c.raw == cert.raw) {
             certs.push(cert);

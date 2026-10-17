@@ -484,6 +484,7 @@ pub struct PdfCraftApp {
     pub docking: docking::Workspace,
     pub(crate) pending_panel_reveals: Vec<docking::Panel>,
     pub session: Session,
+    user_trusted_certificates: Vec<pdfcraft_engine::sign::Certificate>,
     pub views: Vec<DocView>,
     pub(crate) closed_tabs: Vec<String>,
     /// `None` shows the Home tab.
@@ -890,6 +891,7 @@ impl PdfCraftApp {
         }
         Self {
             session,
+            user_trusted_certificates: Vec::new(),
             views: Vec::new(),
             closed_tabs: Vec::new(),
             active: None,
@@ -2219,17 +2221,7 @@ impl PdfCraftApp {
 
     /// Serialize the user's persistent state (recent files, theme). Local only.
     pub fn persist(&self) -> String {
-        // Windows Root certificates are supplied by the OS at runtime, not user overrides.
-        // Never persist them as independently trusted roots: OS removal must take effect.
-        #[cfg(target_os = "windows")]
-        let os_roots = pdfcraft_engine::sign::windows::trusted_roots().unwrap_or_default();
-        let trusted: Vec<String> = self.session.trusted_certificates().iter()
-            .filter(|cert| {
-                #[cfg(target_os = "windows")]
-                { !os_roots.iter().any(|root| root.raw == cert.raw) }
-                #[cfg(not(target_os = "windows"))]
-                { true }
-            })
+        let trusted: Vec<String> = self.user_trusted_certificates.iter()
             .map(pdfcraft_engine::sign::x509::to_pem).collect();
         let mut v = serde_json::json!({
             "docking": self.docking,
@@ -2456,6 +2448,13 @@ impl PdfCraftApp {
         }
         if let Ok(pems) = serde_json::from_value::<Vec<String>>(v["trusted"].clone()) {
             let certs: Vec<pdfcraft_engine::sign::Certificate> = pems.iter().filter_map(|p| pdfcraft_engine::sign::x509::load_certificates(p.as_bytes()).ok()).flatten().collect();
+            // Legacy settings can contain copied OS roots.
+            #[cfg(target_os = "windows")]
+            let certs = match pdfcraft_engine::sign::windows::trusted_roots() {
+                Ok(roots) => certs.into_iter().filter(|c| !roots.iter().any(|r| r.raw == c.raw)).collect::<Vec<_>>(),
+                Err(_) => Vec::new(), // Fail closed for ambiguous legacy trust.
+            };
+            self.user_trusted_certificates = certs.clone();
             let mut combined = certs;
             #[cfg(target_os = "windows")]
             if let Ok(roots) = pdfcraft_engine::sign::windows::trusted_roots() {
