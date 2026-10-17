@@ -261,6 +261,20 @@ impl crate::providers::SigningProvider for Pkcs11SigningProvider {
 mod tests {
     use super::*;
 
+    /// Opt-in read-only integration smoke test. Never uses a private key or PIN.
+    ///
+    /// Run with PDFCRAFT_TEST_PKCS11_MODULE set to a trusted absolute path
+    /// pointing to a disposable software token's PKCS#11 library.
+    #[test]
+    fn opt_in_software_token_read_only_discovery() {
+        let Ok(path) = std::env::var("PDFCRAFT_TEST_PKCS11_MODULE") else {
+            return;
+        };
+        let module = std::path::Path::new(&path);
+        assert!(module.is_absolute() && module.is_file(), "test module must be an existing absolute file");
+        let slots = discover_slots(module).expect("test PKCS#11 module must support slot discovery");
+        assert!(!slots.is_empty(), "test module must have an initialized token");
+    }
     #[test]
     fn adapter_rejects_invalid_configuration_without_loading_module() {
         use crate::keys::PublicKey;
