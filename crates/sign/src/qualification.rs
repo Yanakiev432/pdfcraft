@@ -190,3 +190,100 @@ mod trusted_list_tests {
         assert_eq!(with_trusted_list(preliminary, finding).assess(), Qualification::NotQualified);
     }
 }
+
+/// Provenance required before a trusted-list result may be used by the
+/// qualification engine. This structure does not validate XML signatures:
+/// callers must supply evidence from an independently authenticated verifier.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TrustedListProvenance {
+    /// EU LOTL authenticity and signer were cryptographically verified.
+    pub lotl_signature_verified: bool,
+    /// The member-state TL was discovered through that authenticated LOTL.
+    pub national_list_link_verified: bool,
+    /// National trusted-list signature and signer were verified.
+    pub national_list_signature_verified: bool,
+    /// Service identity and historical status were matched at validation time.
+    pub service_history_verified: bool,
+    /// Qualification/QSCD qualifiers were interpreted at validation time.
+    pub qualifiers_verified: bool,
+}
+
+impl TrustedListProvenance {
+    pub const fn fully_verified(self) -> bool {
+        self.lotl_signature_verified
+            && self.national_list_link_verified
+            && self.national_list_signature_verified
+            && self.service_history_verified
+            && self.qualifiers_verified
+    }
+}
+
+/// Reject unverifiable provenance even when a caller supplies positive findings.
+/// An explicit negative result from authenticated evidence is retained only
+/// when every provenance check succeeds.
+pub fn with_verified_trusted_list(
+    preliminary: QualificationEvidence,
+    finding: TrustedListFinding,
+    provenance: TrustedListProvenance,
+) -> QualificationEvidence {
+    if provenance.fully_verified() {
+        with_trusted_list(preliminary, finding)
+    } else {
+        with_trusted_list(preliminary, TrustedListFinding::unavailable())
+    }
+}
+
+#[cfg(test)]
+mod provenance_tests {
+    use super::*;
+    fn provenance() -> TrustedListProvenance {
+        TrustedListProvenance {
+            lotl_signature_verified: true,
+            national_list_link_verified: true,
+            national_list_signature_verified: true,
+            service_history_verified: true,
+            qualifiers_verified: true,
+        }
+    }
+    fn baseline() -> QualificationEvidence {
+        QualificationEvidence {
+            cryptographic_integrity: Evidence::Confirmed,
+            certificate_path: Evidence::Confirmed,
+            revocation: Evidence::Confirmed,
+            trusted_time: Evidence::Confirmed,
+            eu_trusted_service: Evidence::Unavailable,
+            qualified_certificate_and_qscd: Evidence::Unavailable,
+        }
+    }
+    fn finding() -> TrustedListFinding {
+        TrustedListFinding {
+            service: Evidence::Confirmed,
+            qualified_certificate_and_qscd: Evidence::Confirmed,
+        }
+    }
+    #[test]
+    fn verified_provenance_is_required() {
+        assert_eq!(with_verified_trusted_list(baseline(), finding(), provenance()).assess(), Qualification::Qualified);
+        let mut p = provenance();
+        p.lotl_signature_verified = false;
+        assert_eq!(with_verified_trusted_list(baseline(), finding(), p).assess(), Qualification::Indeterminate);
+        p = provenance();
+        p.national_list_link_verified = false;
+        assert_eq!(with_verified_trusted_list(baseline(), finding(), p).assess(), Qualification::Indeterminate);
+        p = provenance();
+        p.national_list_signature_verified = false;
+        assert_eq!(with_verified_trusted_list(baseline(), finding(), p).assess(), Qualification::Indeterminate);
+        p = provenance();
+        p.service_history_verified = false;
+        assert_eq!(with_verified_trusted_list(baseline(), finding(), p).assess(), Qualification::Indeterminate);
+        p = provenance();
+        p.qualifiers_verified = false;
+        assert_eq!(with_verified_trusted_list(baseline(), finding(), p).assess(), Qualification::Indeterminate);
+    }
+    #[test]
+    fn revoked_certificate_cannot_be_overridden() {
+        let mut b = baseline();
+        b.revocation = Evidence::Rejected;
+        assert_eq!(with_verified_trusted_list(b, finding(), provenance()).assess(), Qualification::NotQualified);
+    }
+}
