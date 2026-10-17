@@ -2448,11 +2448,15 @@ impl PdfCraftApp {
         }
         if let Ok(pems) = serde_json::from_value::<Vec<String>>(v["trusted"].clone()) {
             let certs: Vec<pdfcraft_engine::sign::Certificate> = pems.iter().filter_map(|p| pdfcraft_engine::sign::x509::load_certificates(p.as_bytes()).ok()).flatten().collect();
-            // Legacy settings can contain copied OS roots.
+            // Version 2 stores explicit user trust only. Legacy entries can include OS roots.
             #[cfg(target_os = "windows")]
-            let certs = match pdfcraft_engine::sign::windows::trusted_roots() {
-                Ok(roots) => certs.into_iter().filter(|c| !roots.iter().any(|r| r.raw == c.raw)).collect::<Vec<_>>(),
-                Err(_) => Vec::new(), // Fail closed for ambiguous legacy trust.
+            let certs = if v["trusted_source_version"].as_u64() == Some(2) {
+                certs
+            } else {
+                match pdfcraft_engine::sign::windows::trusted_roots() {
+                    Ok(roots) => certs.into_iter().filter(|c| !roots.iter().any(|r| r.raw == c.raw)).collect::<Vec<_>>(),
+                    Err(_) => Vec::new(), // Fail closed for ambiguous legacy trust.
+                }
             };
             self.user_trusted_certificates = certs.clone();
             let mut combined = certs;
