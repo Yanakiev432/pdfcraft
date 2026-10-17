@@ -276,6 +276,13 @@ mod tests {
         assert!(!slots.is_empty(), "test module must have an initialized token");
     }
     #[test]
+    fn adapter_rejects_unsupported_key_and_empty_identity_without_loading_module() {
+        use crate::keys::PublicKey;
+        let existing = std::env::current_exe().unwrap();
+        assert!(Pkcs11SigningProvider::new(existing.clone(), 0, vec![1], "unsupported", PublicKey::Ed25519(vec![0; 32]),).is_err());
+        assert!(Pkcs11SigningProvider::new(existing, 0, vec![1], "", PublicKey::Rsa { n: vec![1], e: vec![1, 0, 1] },).is_err());
+    }
+    #[test]
     fn adapter_rejects_invalid_configuration_without_loading_module() {
         use crate::keys::PublicKey;
         assert!(
