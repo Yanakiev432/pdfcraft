@@ -304,6 +304,21 @@ mod tests {
         }
         assert!(eligible > 0, "no public certificate has CKA_ID metadata");
     }
+    /// Read-only token authentication capability probe. Never logs in.
+    #[test]
+    #[ignore = "requires trusted attached PKCS11 token"]
+    fn opt_in_token_protected_authentication_capability() {
+        let path = std::env::var("PDFCRAFT_TEST_PKCS11_MODULE").expect("set trusted module path");
+        let module = std::path::Path::new(&path);
+        let context = cryptoki::context::Pkcs11::new(module).expect("load trusted module");
+        context.initialize(cryptoki::context::CInitializeArgs::OsThreads).expect("initialize module");
+        let slots = context.get_slots_with_token().expect("enumerate token slots");
+        assert!(!slots.is_empty(), "no tokens found");
+        for slot in slots {
+            let token = context.get_token_info(slot).expect("read token info");
+            println!("slot={} protected_authentication_path={}", slot.id(), token.protected_authentication_path());
+        }
+    }
     #[test]
     fn adapter_rejects_unsupported_key_and_empty_identity_without_loading_module() {
         use crate::keys::PublicKey;
