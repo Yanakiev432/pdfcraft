@@ -2282,6 +2282,9 @@ impl PdfCraftApp {
             // macOS Keychain and Windows store identities are read from their OS key stores each time.
             "digital_ids": self.digital_ids.iter().filter(|e| !e.path.starts_with("keychain:") && !e.path.starts_with("windows:")).collect::<Vec<_>>(),
             "trusted": trusted,
+            // Version 2 stores user overrides separately from live Windows Root certificates.
+            // Legacy unversioned trust cannot be safely attributed to either source.
+            "trusted_source_version": 2,
             "custom_stamps": stamps_ui::encode(&self.custom_stamps),
             "javascript": self.session.javascript(),
             "actions": actions_ui::encode(&self.custom_actions),
