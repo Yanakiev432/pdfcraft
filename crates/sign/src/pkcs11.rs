@@ -55,6 +55,13 @@ pub fn signing_input(mechanism: Mechanism, digest: DigestAlg, message: &[u8]) ->
     }
 }
 
+/// Normalize a raw token signature for CMS embedding.
+///
+/// PdfCraft already validates supported key types and ECDSA component sizes
+/// in PublicKey::store_signature_der; reuse it rather than duplicating ASN.1.
+pub fn cms_signature(public: &crate::keys::PublicKey, raw: &[u8]) -> Result<Vec<u8>, SignError> {
+    public.store_signature_der(raw)
+}
 #[cfg(test)]
 mod tests {
     use super::*;
