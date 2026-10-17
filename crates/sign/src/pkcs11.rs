@@ -274,6 +274,17 @@ mod tests {
         let slots = discover_slots(module).expect("test PKCS#11 module must support slot discovery");
         assert!(!slots.is_empty(), "test module must have an initialized token");
     }
+    /// Opt-in public certificate discovery. No PIN, login, or signing.
+    #[test]
+    #[ignore = "requires an explicitly trusted PKCS#11 module and attached token"]
+    fn opt_in_token_public_certificates() {
+        let path = std::env::var("PDFCRAFT_TEST_PKCS11_MODULE").expect("set trusted module path");
+        let certs = discover_certificates(std::path::Path::new(&path)).expect("read-only certificate discovery must succeed");
+        assert!(!certs.is_empty(), "expected at least one publicly visible certificate");
+        for cert in &certs {
+            assert!(!cert.der.is_empty());
+        }
+    }
     #[test]
     fn adapter_rejects_unsupported_key_and_empty_identity_without_loading_module() {
         use crate::keys::PublicKey;
