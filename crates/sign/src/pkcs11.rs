@@ -140,6 +140,29 @@ pub fn discover_certificates(module_path: &std::path::Path) -> Result<Vec<TokenC
     }
     Ok(certificates)
 }
+/// Discover a private-key object by certificate CKA_ID without reading its value.
+///
+/// This performs only object lookup. A successful match is not evidence that
+/// the token permits signing or that user authentication has succeeded.
+pub fn matching_private_key_count(module_path: &std::path::Path, slot_id: u64, key_id: &[u8]) -> Result<usize, SignError> {
+    use cryptoki::object::{Attribute, ObjectClass};
+    if key_id.is_empty() {
+        return Err(SignError::Unsupported("PKCS#11 key matching requires a nonempty CKA_ID".into()));
+    }
+    if !module_path.is_absolute() || !module_path.is_file() {
+        return Err(SignError::Unsupported("PKCS#11 module must be an existing absolute library path".into()));
+    }
+    let context = cryptoki::context::Pkcs11::new(module_path).map_err(|e| SignError::Crypto(format!("cannot load PKCS#11 module: {e}")))?;
+    context
+        .initialize(cryptoki::context::CInitializeArgs::OsThreads)
+        .map_err(|e| SignError::Crypto(format!("cannot initialize PKCS#11 module: {e}")))?;
+    let slot = cryptoki::slot::Slot::try_from(slot_id).map_err(|e| SignError::Crypto(format!("invalid PKCS#11 slot ID: {e}")))?;
+    let session = context.open_ro_session(slot).map_err(|e| SignError::Crypto(format!("cannot open PKCS#11 read-only session: {e}")))?;
+    let matches = session
+        .find_objects(&[Attribute::Class(ObjectClass::PRIVATE_KEY), Attribute::Id(key_id.to_vec())])
+        .map_err(|e| SignError::Crypto(format!("cannot match PKCS#11 private-key objects: {e}")))?;
+    Ok(matches.len())
+}
 #[cfg(test)]
 mod tests {
     use super::*;
