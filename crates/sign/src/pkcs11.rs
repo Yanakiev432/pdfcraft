@@ -212,6 +212,25 @@ mod tests {
     use super::*;
 
     #[test]
+    fn key_matching_rejects_empty_id_without_loading_vendor_code() {
+        let fake_module = std::path::Path::new("untrusted-pkcs11.dll");
+        assert!(matching_private_key_count(fake_module, 0, &[]).is_err());
+    }
+
+    #[test]
+    fn protected_signing_rejects_empty_id_without_loading_vendor_code() {
+        let fake_module = std::path::Path::new("untrusted-pkcs11.dll");
+        assert!(sign_with_protected_authentication(fake_module, 0, &[], Mechanism::RsaPkcs, DigestAlg::Sha256, b"test").is_err());
+    }
+
+    #[test]
+    fn protected_signing_rejects_relative_module_before_token_access() {
+        assert!(
+            sign_with_protected_authentication(std::path::Path::new("untrusted-pkcs11.dll"), 0, &[1], Mechanism::RsaPkcs, DigestAlg::Sha256, b"test")
+                .is_err()
+        );
+    }
+    #[test]
     fn discovery_rejects_missing_or_relative_module_paths() {
         assert!(discover_slots(std::path::Path::new("vendor-pkcs11.dll")).is_err());
         let missing = std::env::temp_dir().join("pdfcraft-nonexistent-pkcs11-module-verify.dll");
