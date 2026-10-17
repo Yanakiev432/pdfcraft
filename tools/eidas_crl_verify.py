@@ -38,7 +38,7 @@ def inspect(pem, crl_file, at_text):
     revoked=crl.get_revoked_certificate_by_serial_number(leaf.serial_number)
     status="Unavailable"
     if sig_ok and window:
-        status="Revoked" if revoked and revoked.revocation_date.replace(tzinfo=dt.timezone.utc)<=at else "GoodAtEvaluationTime"
+        status="GoodAtEvaluationTime" if revoked is None else ("Revoked" if revoked.revocation_date.replace(tzinfo=dt.timezone.utc)<=at else "IndeterminateHistorical")
     return {"crl_issuer_matches":issuer_match,"crl_signature_verified":sig_ok,
             "crl_valid_at_evaluation_time":window,"revocation_status":status,
             "trusted_evaluation_time":False,"issuer_path_verified":False,
