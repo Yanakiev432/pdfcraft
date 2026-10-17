@@ -130,3 +130,63 @@ mod integration_tests {
         assert_eq!(from_signature(&info).assess(), Qualification::Indeterminate);
     }
 }
+
+/// External evidence is intentionally not accepted as a boolean or as a CA name.
+/// Only a verifier that authenticates the EU LOTL, the national trusted list,
+/// the relevant service history and qualifiers may produce this result.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TrustedListFinding {
+    pub service: Evidence,
+    pub qualified_certificate_and_qscd: Evidence,
+}
+
+impl TrustedListFinding {
+    /// Fail-closed placeholder for callers without an authenticated trusted-list verifier.
+    pub const fn unavailable() -> Self {
+        Self {
+            service: Evidence::Unavailable,
+            qualified_certificate_and_qscd: Evidence::Unavailable,
+        }
+    }
+}
+
+/// Add an authenticated trusted-list finding to a preliminary PDF assessment.
+/// A negative or missing cryptographic/revocation finding cannot be overridden.
+pub fn with_trusted_list(mut preliminary: QualificationEvidence, finding: TrustedListFinding) -> QualificationEvidence {
+    preliminary.eu_trusted_service = finding.service;
+    preliminary.qualified_certificate_and_qscd = finding.qualified_certificate_and_qscd;
+    preliminary
+}
+
+#[cfg(test)]
+mod trusted_list_tests {
+    use super::*;
+    #[test]
+    fn no_external_verifier_means_no_qualification() {
+        let preliminary = QualificationEvidence {
+            cryptographic_integrity: Evidence::Confirmed,
+            certificate_path: Evidence::Confirmed,
+            revocation: Evidence::Confirmed,
+            trusted_time: Evidence::Confirmed,
+            eu_trusted_service: Evidence::Unavailable,
+            qualified_certificate_and_qscd: Evidence::Unavailable,
+        };
+        assert_eq!(with_trusted_list(preliminary, TrustedListFinding::unavailable()).assess(), Qualification::Indeterminate);
+    }
+    #[test]
+    fn external_evidence_cannot_override_revocation() {
+        let preliminary = QualificationEvidence {
+            cryptographic_integrity: Evidence::Confirmed,
+            certificate_path: Evidence::Confirmed,
+            revocation: Evidence::Rejected,
+            trusted_time: Evidence::Confirmed,
+            eu_trusted_service: Evidence::Unavailable,
+            qualified_certificate_and_qscd: Evidence::Unavailable,
+        };
+        let finding = TrustedListFinding {
+            service: Evidence::Confirmed,
+            qualified_certificate_and_qscd: Evidence::Confirmed,
+        };
+        assert_eq!(with_trusted_list(preliminary, finding).assess(), Qualification::NotQualified);
+    }
+}
