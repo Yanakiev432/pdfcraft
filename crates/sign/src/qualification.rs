@@ -96,7 +96,7 @@ pub fn from_signature(info: &crate::pdf::SignatureInfo) -> QualificationEvidence
     let revocation = if info.details.iter().any(|d| d.message.starts_with("The signer's certificate has been revoked (")) {
         Evidence::Rejected
     } else if has("The document's embedded revocation information shows that the signer's certificate has not been revoked.") {
-        Evidence::Confirmed
+        Evidence::Unavailable
     } else {
         Evidence::Unavailable
     };
@@ -104,7 +104,7 @@ pub fn from_signature(info: &crate::pdf::SignatureInfo) -> QualificationEvidence
         cryptographic_integrity: integrity,
         certificate_path,
         revocation,
-        trusted_time: if info.timestamp_time.is_some() { Evidence::Confirmed } else { Evidence::Unavailable },
+        trusted_time: Evidence::Unavailable, // A parsed timestamp is not proof of an authenticated TSA/time chain.
         eu_trusted_service: Evidence::Unavailable,
         qualified_certificate_and_qscd: Evidence::Unavailable,
     }
