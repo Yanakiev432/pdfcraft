@@ -266,10 +266,9 @@ mod tests {
     /// Run with PDFCRAFT_TEST_PKCS11_MODULE set to a trusted absolute path
     /// pointing to a disposable software token's PKCS#11 library.
     #[test]
+    #[ignore = "requires a separately provisioned disposable PKCS#11 software token"]
     fn opt_in_software_token_read_only_discovery() {
-        let Ok(path) = std::env::var("PDFCRAFT_TEST_PKCS11_MODULE") else {
-            return;
-        };
+        let path = std::env::var("PDFCRAFT_TEST_PKCS11_MODULE").expect("set PDFCRAFT_TEST_PKCS11_MODULE to a trusted absolute module path");
         let module = std::path::Path::new(&path);
         assert!(module.is_absolute() && module.is_file(), "test module must be an existing absolute file");
         let slots = discover_slots(module).expect("test PKCS#11 module must support slot discovery");
