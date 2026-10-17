@@ -84,7 +84,7 @@ pub fn from_signature(info: &crate::pdf::SignatureInfo) -> QualificationEvidence
     use crate::pdf::Status;
     let has = |message: &str| info.details.iter().any(|d| d.message == message);
     let integrity = match info.status {
-        Status::Invalid => Evidence::Rejected,
+        Status::Invalid => Evidence::Unavailable,
         Status::Valid => Evidence::Confirmed,
         Status::Unknown => Evidence::Unavailable,
     };
@@ -127,6 +127,6 @@ mod integration_tests {
         assert_eq!(from_signature(&info).assess(), Qualification::Indeterminate);
         assert_eq!(from_signature(&info).trusted_time, Evidence::Unavailable);
         info.status = crate::pdf::Status::Invalid;
-        assert_eq!(from_signature(&info).assess(), Qualification::NotQualified);
+        assert_eq!(from_signature(&info).assess(), Qualification::Indeterminate);
     }
 }
