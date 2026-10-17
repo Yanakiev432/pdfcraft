@@ -207,6 +207,56 @@ pub fn sign_with_protected_authentication(
     };
     session.sign(&pkcs11_mechanism, *key, &input).map_err(|e| SignError::Crypto(format!("PKCS#11 C_Sign failed: {e}")))
 }
+/// An explicitly configured PKCS#11 signing adapter.
+///
+/// The identity is a caller-selected opaque reference, not a module path or PIN.
+/// Construction performs no token operation; signing may invoke the token's
+/// protected authentication UI. The public key must come from the selected
+/// certificate and is used to normalize ECDSA signatures for CMS.
+pub struct Pkcs11SigningProvider {
+    module_path: std::path::PathBuf,
+    slot_id: u64,
+    key_id: Vec<u8>,
+    identity: crate::providers::IdentityReference,
+    mechanism: Mechanism,
+    public_key: crate::keys::PublicKey,
+}
+
+impl Pkcs11SigningProvider {
+    pub fn new(
+        module_path: std::path::PathBuf,
+        slot_id: u64,
+        key_id: Vec<u8>,
+        identifier: impl Into<String>,
+        public_key: crate::keys::PublicKey,
+    ) -> Result<Self, SignError> {
+        if !module_path.is_absolute() || !module_path.is_file() || key_id.is_empty() {
+            return Err(SignError::Unsupported("PKCS#11 adapter requires an existing absolute module path and nonempty CKA_ID".into()));
+        }
+        let mechanism = match &public_key {
+            crate::keys::PublicKey::Rsa { .. } => Mechanism::RsaPkcs,
+            crate::keys::PublicKey::P256(_) | crate::keys::PublicKey::P384(_) => Mechanism::Ecdsa,
+            _ => return Err(SignError::Unsupported("PKCS#11 adapter supports RSA, P-256 and P-384 only".into())),
+        };
+        let identity = crate::providers::IdentityReference::new(crate::providers::ProviderKind::Pkcs11Token, identifier)
+            .map_err(|e| SignError::Unsupported(e.into()))?;
+        Ok(Self { module_path, slot_id, key_id, identity, mechanism, public_key })
+    }
+}
+
+impl crate::providers::SigningProvider for Pkcs11SigningProvider {
+    fn kind(&self) -> crate::providers::ProviderKind {
+        crate::providers::ProviderKind::Pkcs11Token
+    }
+
+    fn sign(&self, request: crate::providers::SigningRequest<'_>) -> Result<Vec<u8>, SignError> {
+        if request.identity != &self.identity {
+            return Err(SignError::Unsupported("PKCS#11 signing identity does not match configured adapter".into()));
+        }
+        let raw = sign_with_protected_authentication(&self.module_path, self.slot_id, &self.key_id, self.mechanism, request.digest, request.message)?;
+        cms_signature(&self.public_key, &raw)
+    }
+}
 #[cfg(test)]
 mod tests {
     use super::*;
