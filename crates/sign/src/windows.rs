@@ -246,6 +246,19 @@ mod tests {
             println!("unusable_reason={}", item.reason);
         }
     }
+    /// Opt-in read-only check for one explicitly selected certificate fingerprint.
+    #[test]
+    #[ignore = "requires a locally selected certificate in Windows CurrentUser My"]
+    fn opt_in_selected_identity_is_usable_without_pin() {
+        let wanted = std::env::var("PDFCRAFT_TEST_WINDOWS_CERT_SHA256").expect("set the SHA-256 certificate fingerprint");
+        assert_eq!(wanted.len(), 64, "fingerprint must be SHA-256 hex");
+        assert!(wanted.bytes().all(|b| b.is_ascii_hexdigit()), "fingerprint must be hex");
+        let listing = list().expect("silent Windows certificate inventory");
+        let selected =
+            listing.ids.iter().find(|id| reference(&id.certificate).strip_prefix("windows:").is_some_and(|hash| hash.eq_ignore_ascii_case(&wanted)));
+        assert!(selected.is_some(), "selected certificate was not usable in silent inventory");
+        println!("selected_identity_usable=true; no PIN requested; no signing");
+    }
     #[test]
     fn errors_are_explained_with_their_code() {
         assert_eq!(
