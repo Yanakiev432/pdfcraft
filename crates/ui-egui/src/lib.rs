@@ -3208,3 +3208,33 @@ impl PdfCraftApp {
         }
     }
 }
+
+#[cfg(test)]
+mod trust_persistence_tests {
+    use super::PdfCraftApp;
+
+    #[test]
+    fn saved_trust_format_is_versioned_and_stable_on_restore() {
+        let app = PdfCraftApp::new();
+        let saved: serde_json::Value = serde_json::from_str(&app.persist()).unwrap();
+        assert_eq!(saved["trusted_source_version"], 2);
+        assert!(saved["trusted"].is_array());
+        let mut restored = PdfCraftApp::new();
+        restored.restore(&saved.to_string());
+        let again: serde_json::Value = serde_json::from_str(&restored.persist()).unwrap();
+        assert_eq!(again["trusted_source_version"], 2);
+        assert_eq!(again["trusted"], saved["trusted"]);
+    }
+
+    #[test]
+    fn legacy_unversioned_trust_settings_are_accepted_without_data_loss() {
+        let app = PdfCraftApp::new();
+        let mut legacy: serde_json::Value = serde_json::from_str(&app.persist()).unwrap();
+        legacy.as_object_mut().unwrap().remove("trusted_source_version");
+        let mut restored = PdfCraftApp::new();
+        restored.restore(&legacy.to_string());
+        let saved: serde_json::Value = serde_json::from_str(&restored.persist()).unwrap();
+        assert_eq!(saved["trusted_source_version"], 2);
+        assert_eq!(saved["trusted"], legacy["trusted"]);
+    }
+}
