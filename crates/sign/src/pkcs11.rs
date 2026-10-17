@@ -262,6 +262,28 @@ mod tests {
     use super::*;
 
     #[test]
+    fn adapter_rejects_invalid_configuration_without_loading_module() {
+        use crate::keys::PublicKey;
+        assert!(
+            Pkcs11SigningProvider::new(std::path::PathBuf::from("relative.dll"), 1, vec![1], "test", PublicKey::Rsa { n: vec![1], e: vec![1, 0, 1] })
+                .is_err()
+        );
+        assert!(
+            Pkcs11SigningProvider::new(std::path::PathBuf::from("relative.dll"), 1, vec![], "test", PublicKey::Rsa { n: vec![1], e: vec![1, 0, 1] })
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn adapter_rejects_identity_mismatch_before_loading_module() {
+        use crate::keys::PublicKey;
+        use crate::providers::{IdentityReference, ProviderKind, SigningProvider, SigningRequest};
+        let existing = std::env::current_exe().unwrap();
+        let adapter = Pkcs11SigningProvider::new(existing, 0, vec![1], "configured", PublicKey::Rsa { n: vec![1], e: vec![1, 0, 1] }).unwrap();
+        let wrong = IdentityReference::new(ProviderKind::Pkcs11Token, "other").unwrap();
+        assert!(adapter.sign(SigningRequest { identity: &wrong, digest: DigestAlg::Sha256, message: b"test" }).is_err());
+    }
+    #[test]
     fn key_matching_rejects_empty_id_without_loading_vendor_code() {
         let fake_module = std::path::Path::new("untrusted-pkcs11.dll");
         assert!(matching_private_key_count(fake_module, 0, &[]).is_err());
