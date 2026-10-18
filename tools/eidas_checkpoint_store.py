@@ -74,3 +74,18 @@ def record_authenticated_acceptance(db_path, acceptance_report, checkpoint_path,
     result['current_list_report_consistency_checked'] = True
     result['acceptance_report_provenance_verified_by_store'] = False
     return result
+def verify_and_record_trusted_lists(db_path, eu_xml_path, national_xml_path, evaluation_time,
+                                    checkpoint_path, signature_path, public_key_path, pinned_key_sha256):
+    """Directly invoke XMLDSig/LOTL validation; do not accept caller-supplied JSON."""
+    from eidas_chain_acceptance import acceptance
+    report = acceptance(eu_xml_path, national_xml_path, evaluation_time)
+    if report.get('eu_lotl_authenticated_at_evaluation_time') is not True:
+        raise ValueError('EU LOTL authentication failed')
+    if report.get('national_tsl_authenticated_via_lotl') is not True:
+        raise ValueError('National TSL authentication failed')
+    result = record_authenticated_acceptance(db_path, report, checkpoint_path,
+                                             signature_path, public_key_path, pinned_key_sha256)
+    result['trusted_list_verification_invoked_directly'] = True
+    result['eu_lotl_authenticated_at_evaluation_time'] = True
+    result['national_tsl_authenticated_via_lotl'] = True
+    return result

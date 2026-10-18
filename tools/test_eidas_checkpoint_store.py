@@ -1,12 +1,13 @@
 import hashlib
 import json
 import sqlite3
+from unittest.mock import patch
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
-from eidas_checkpoint_store import record_signed_checkpoint, record_authenticated_acceptance
+from eidas_checkpoint_store import record_signed_checkpoint, record_authenticated_acceptance, verify_and_record_trusted_lists
 
 class CheckpointStoreTests(unittest.TestCase):
     def test_signed_checkpoint_must_match_authenticated_list_report(self):
@@ -31,6 +32,30 @@ class CheckpointStoreTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 record_authenticated_acceptance(args[0], missing, *args[1:])
             self.assertTrue(record_authenticated_acceptance(args[0], accepted, *args[1:])['current_list_report_consistency_checked'])
+    def test_direct_verifier_required_and_failed_authentication_cannot_write(self):
+        with TemporaryDirectory() as folder:
+            d = Path(folder)
+            key = Ed25519PrivateKey.generate()
+            der = key.public_key().public_bytes(serialization.Encoding.DER, serialization.PublicFormat.SubjectPublicKeyInfo)
+            pin = hashlib.sha256(der).hexdigest()
+            (d/'key.pem').write_bytes(key.public_key().public_bytes(serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo))
+            entry = {'sequence': 11, 'issued': '2026-10-11T00:00:00Z', 'sha256': 'a'*64, 'within_publication_window': True}
+            baseline = {'schema': 'pdfcraft.eidas.rollback-snapshot.v1', 'eu': entry, 'national': entry}
+            raw = json.dumps(baseline).encode()
+            (d/'checkpoint.json').write_bytes(raw)
+            (d/'checkpoint.sig').write_bytes(key.sign(raw))
+            args = (d/'state.db', 'eu.xml', 'national.xml', '2026-10-18T00:00:00Z', d/'checkpoint.json', d/'checkpoint.sig', d/'key.pem', pin)
+            accepted = dict(baseline, eu_lotl_authenticated_at_evaluation_time=True, national_tsl_authenticated_via_lotl=True)
+            with patch('eidas_chain_acceptance.acceptance', return_value=dict(accepted, national_tsl_authenticated_via_lotl=False)) as verifier:
+                with self.assertRaisesRegex(ValueError, 'National TSL authentication failed'):
+                    verify_and_record_trusted_lists(*args)
+                verifier.assert_called_once_with('eu.xml', 'national.xml', '2026-10-18T00:00:00Z')
+            self.assertFalse(args[0].exists())
+            with patch('eidas_chain_acceptance.acceptance', return_value=accepted) as verifier:
+                result = verify_and_record_trusted_lists(*args)
+                self.assertTrue(result['trusted_list_verification_invoked_directly'])
+                verifier.assert_called_once()
+            self.assertTrue(args[0].exists())
     def test_monotonic_updates_replay_equivocation_and_tamper(self):
         with TemporaryDirectory() as folder:
             d = Path(folder)
