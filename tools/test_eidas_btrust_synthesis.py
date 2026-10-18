@@ -35,6 +35,30 @@ class SynthesisTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             synthesize('pdf', 'eu', 'bg', 'pem', 'crl', 'ocsp', '2026-10-18T14:30:00Z')
 
+    @patch('eidas_btrust_synthesis.root_link_inspect', return_value={'local_three_certificate_link_verified': True, 'independent_root_pin_provenance_verified': False})
+    @patch('eidas_btrust_synthesis.certificate_link_inspect', return_value={'local_link_verified': True})
+    @patch('eidas_btrust_synthesis.revocation_inspect')
+    @patch('eidas_btrust_synthesis.ca_evaluate')
+    @patch('eidas_btrust_synthesis.acceptance')
+    def test_optional_root_link_does_not_promote_qes(self, lists, ca, rev, cert, root):
+        with TemporaryDirectory() as directory:
+            bg = Path(directory) / 'bg.xml'
+            bg.write_bytes(b'authenticated')
+            lists.return_value = {'eu_lotl_authenticated_at_evaluation_time': True,
+                                  'national_tsl_authenticated_via_lotl': True,
+                                  'eu': {}, 'national': {'sha256': hashlib.sha256(bg.read_bytes()).hexdigest()}}
+            ca.return_value = {'ca_qc_candidates_unverified': []}
+            rev.return_value = {'schema': 'pdfcraft.eidas.revocation-evidence.v1',
+                                'combined_observation': 'ConcordantGoodAtEvaluationTime',
+                                'inputs_sha256': {}}
+            args = ('pdf', 'eu', str(bg), 'pem', 'crl', 'ocsp', '2026-10-18T14:30:00Z')
+            result = synthesize(*args, 'root.pem', 'a'*64)
+            self.assertTrue(result['root_link']['local_three_certificate_link_verified'])
+            self.assertFalse(result['qes_pass'])
+            self.assertEqual(result['qualification'], 'Indeterminate')
+            with self.assertRaisesRegex(ValueError, 'together'):
+                synthesize(*args, 'root.pem', None)
+
     @patch('eidas_btrust_synthesis.certificate_link_inspect', return_value={'local_link_verified': True})
     @patch('eidas_btrust_synthesis.revocation_inspect')
     @patch('eidas_btrust_synthesis.ca_evaluate')

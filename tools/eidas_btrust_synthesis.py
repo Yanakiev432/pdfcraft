@@ -8,10 +8,11 @@ from eidas_chain_acceptance import acceptance
 from eidas_ca_qc_time_match import evaluate as ca_evaluate
 from eidas_revocation_report import inspect as revocation_inspect
 from eidas_certificate_path_verify import inspect as certificate_link_inspect
+from eidas_root_link_verify import inspect as root_link_inspect
 
 SCHEMA = 'pdfcraft.eidas.btrust-evidence-synthesis.v1'
 
-def synthesize(pdf, eu_xml, bg_xml, pem, crl, ocsp, evaluation_time):
+def synthesize(pdf, eu_xml, bg_xml, pem, crl, ocsp, evaluation_time, root_pem=None, root_sha256=None):
     lists = acceptance(eu_xml, bg_xml, evaluation_time)
     if lists.get('eu_lotl_authenticated_at_evaluation_time') is not True or lists.get('national_tsl_authenticated_via_lotl') is not True:
         raise ValueError('EU LOTL / BG TSL chain not authenticated')
@@ -22,6 +23,11 @@ def synthesize(pdf, eu_xml, bg_xml, pem, crl, ocsp, evaluation_time):
     if hashlib.sha256(Path(bg_xml).read_bytes()).hexdigest() != lists['national']['sha256']:
         raise ValueError('National TSL changed during CA/QC matching')
     certificate_link = certificate_link_inspect(pem, evaluation_time)
+    root_link = None
+    if root_pem is not None or root_sha256 is not None:
+        if not root_pem or not root_sha256:
+            raise ValueError('Root PEM and root SHA-256 must be provided together')
+        root_link = root_link_inspect(pem, root_pem, root_sha256, evaluation_time)
     revocation = revocation_inspect(pem, crl, ocsp, evaluation_time)
     if revocation.get('schema') != 'pdfcraft.eidas.revocation-evidence.v1':
         raise ValueError('Unexpected revocation evidence schema')
@@ -39,6 +45,7 @@ def synthesize(pdf, eu_xml, bg_xml, pem, crl, ocsp, evaluation_time):
         'ca_qc_service_candidates_at_evaluation_time': len(matched),
         'ca_qc_candidate_cert_sha256': sorted({digest for x in matched for digest in x.get('matched_der_sha256', [])}),
         'certificate_link': certificate_link,
+        'root_link': root_link,
         'revocation_observation': revocation['combined_observation'],
         'revocation_evidence_sha256': revocation['inputs_sha256'],
         'trusted_signing_time_verified': False,
@@ -54,6 +61,8 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     for arg in ('pdf', 'eu_xml', 'bg_xml', 'pem', 'crl', 'ocsp', 'evaluation_time'):
         parser.add_argument(arg)
+    parser.add_argument('--root-pem', default=None)
+    parser.add_argument('--root-sha256', default=None)
     args = parser.parse_args()
     print(json.dumps(synthesize(args.pdf, args.eu_xml, args.bg_xml, args.pem,
-                                args.crl, args.ocsp, args.evaluation_time), indent=2))
+                                args.crl, args.ocsp, args.evaluation_time, args.root_pem, args.root_sha256), indent=2))
