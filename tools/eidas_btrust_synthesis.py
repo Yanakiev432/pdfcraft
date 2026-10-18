@@ -35,6 +35,11 @@ def synthesize(pdf, eu_xml, bg_xml, pem, crl, ocsp, evaluation_time, root_pem=No
     if not isinstance(candidates, list):
         raise ValueError('Missing CA/QC candidates')
     matched = [x for x in candidates if x.get('ca_qc') is True and x.get('granted_at_requested_time_unverified') is True]
+    candidate_digests = {digest for x in matched for digest in x.get('matched_der_sha256', [])}
+    issuer_tsl_bound = bool(certificate_link.get('local_link_verified') is True and
+                            certificate_link.get('issuer_der_sha256') in candidate_digests)
+    # The authenticated national TSL can itself identify a CA/QC service certificate.
+    # This is distinct from a self-signed root or a caller-supplied root pin.
     # No caller-supplied or document-declared time is a trusted signing time.
     return {
         'schema': SCHEMA,
@@ -45,6 +50,7 @@ def synthesize(pdf, eu_xml, bg_xml, pem, crl, ocsp, evaluation_time, root_pem=No
         'ca_qc_service_candidates_at_evaluation_time': len(matched),
         'ca_qc_candidate_cert_sha256': sorted({digest for x in matched for digest in x.get('matched_der_sha256', [])}),
         'certificate_link': certificate_link,
+        'issuer_ca_qc_identity_bound_to_authenticated_tsl': issuer_tsl_bound,
         'root_link': root_link,
         'revocation_observation': revocation['combined_observation'],
         'revocation_evidence_sha256': revocation['inputs_sha256'],

@@ -31,6 +31,7 @@ class SynthesisTests(unittest.TestCase):
         self.assertEqual(result['qualification'], 'Indeterminate')
         self.assertFalse(result['qes_pass'])
         self.assertFalse(result['trusted_signing_time_verified'])
+        self.assertFalse(result['issuer_ca_qc_identity_bound_to_authenticated_tsl'])
         lists.return_value['national_tsl_authenticated_via_lotl'] = False
         with self.assertRaises(ValueError):
             synthesize('pdf', 'eu', 'bg', 'pem', 'crl', 'ocsp', '2026-10-18T14:30:00Z')
@@ -55,6 +56,7 @@ class SynthesisTests(unittest.TestCase):
             result = synthesize(*args, 'root.pem', 'a'*64)
             self.assertTrue(result['root_link']['local_three_certificate_link_verified'])
             self.assertFalse(result['qes_pass'])
+            self.assertFalse(result['issuer_ca_qc_identity_bound_to_authenticated_tsl'])
             self.assertEqual(result['qualification'], 'Indeterminate')
             with self.assertRaisesRegex(ValueError, 'together'):
                 synthesize(*args, 'root.pem', None)
