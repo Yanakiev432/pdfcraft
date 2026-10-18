@@ -23,3 +23,7 @@ This integration reports `independent_dss_qes_pass` separately from `native_qes_
 - All sensitive full reports remain outside Git.
 
 Remaining product gates: desktop Signatures panel wiring; long-term PAdES-LT/LTA issuance and preservation with trusted timestamps and authenticated, time-valid revocation evidence; release build/installer and end-to-end GUI acceptance. Do not claim these gates passed based on CLI validation alone.
+
+## Additional real-file negative acceptance (2026-10-18)
+
+A disposable copy of the original B-Trust PDF was modified by XORing one byte at offset 100, then passed to the same local DSS Python adapter. The validator raised `ValueError: DSS single-signature acceptance criteria not met`, returned exit code 1, and **did not** emit a QES PASS. The disposable PDF was deleted; the original file remained unchanged. This test demonstrates rejection of that specific tampering case; it is not exhaustive adversarial PDF fuzzing.
