@@ -39,6 +39,24 @@ def compare(current, previous):
             "not_older_than_checkpoint": not rollback and not equivocation,
             "checkpoint_provenance_verified": False,
             "content_identity_compared": old_hash is not None and new_hash is not None}
+def check_authenticated_acceptance(acceptance_report, baseline):
+    """Compare signed-list acceptance to a baseline, without trusting the baseline."""
+    if not isinstance(acceptance_report, dict):
+        raise ValueError("Invalid acceptance report")
+    if acceptance_report.get("eu_lotl_authenticated_at_evaluation_time") is not True:
+        raise ValueError("EU LOTL authentication not confirmed")
+    if acceptance_report.get("national_tsl_authenticated_via_lotl") is not True:
+        raise ValueError("National TSL authentication not confirmed")
+    for name in ("eu", "national"):
+        entry = acceptance_report.get(name)
+        if not isinstance(entry, dict) or entry.get("within_publication_window") is not True:
+            raise ValueError("Trusted-list publication window not confirmed")
+    current = {"schema": "pdfcraft.eidas.rollback-snapshot.v1",
+               "eu": acceptance_report["eu"], "national": acceptance_report["national"]}
+    result = check(current, baseline)
+    result["authenticated_current_lists"] = True
+    result["baseline_provenance_verified"] = False
+    return result
 def check(current, baseline):
     if current.get("schema") != "pdfcraft.eidas.rollback-snapshot.v1" or baseline.get("schema") != "pdfcraft.eidas.rollback-snapshot.v1":
         raise ValueError("Unrecognized snapshot schema")

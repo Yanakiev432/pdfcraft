@@ -1,5 +1,5 @@
 import unittest
-from eidas_rollback_guard import compare, snapshot, check
+from eidas_rollback_guard import compare, snapshot, check, check_authenticated_acceptance
 from pathlib import Path
 from tempfile import TemporaryDirectory
 class RollbackGuardTests(unittest.TestCase):
@@ -29,6 +29,26 @@ class RollbackGuardTests(unittest.TestCase):
             check(dict(record, schema="other"), record)
         with self.assertRaises(ValueError):
             check(dict(record, national=self.old), record)
+    def test_authenticated_acceptance_still_does_not_trust_baseline(self):
+        entry = dict(self.old, sha256="a" * 64, within_publication_window=True)
+        baseline = {"schema": "pdfcraft.eidas.rollback-snapshot.v1", "eu": entry, "national": entry}
+        accepted = dict(baseline, eu_lotl_authenticated_at_evaluation_time=True,
+                        national_tsl_authenticated_via_lotl=True)
+        finding = check_authenticated_acceptance(accepted, baseline)
+        self.assertTrue(finding["authenticated_current_lists"])
+        self.assertFalse(finding["baseline_provenance_verified"])
+        self.assertFalse(finding["rollback_protection_verified"])
+    def test_unverified_acceptance_is_rejected(self):
+        entry = dict(self.old, sha256="a" * 64, within_publication_window=True)
+        baseline = {"schema": "pdfcraft.eidas.rollback-snapshot.v1", "eu": entry, "national": entry}
+        for field in ("eu_lotl_authenticated_at_evaluation_time", "national_tsl_authenticated_via_lotl"):
+            accepted = dict(baseline, eu_lotl_authenticated_at_evaluation_time=True,
+                            national_tsl_authenticated_via_lotl=True)
+            accepted[field] = False
+            with self.assertRaises(ValueError): check_authenticated_acceptance(accepted, baseline)
+        accepted[field] = True
+        accepted["national"] = dict(entry, within_publication_window=False)
+        with self.assertRaises(ValueError): check_authenticated_acceptance(accepted, baseline)
     def test_equal(self):
         self.assertTrue(compare(self.old, self.old)["not_older_than_checkpoint"])
     def test_sequence_rollback(self):
