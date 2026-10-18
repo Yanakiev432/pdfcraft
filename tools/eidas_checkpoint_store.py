@@ -8,7 +8,7 @@ import hashlib
 import json
 import sqlite3
 from pathlib import Path
-from eidas_rollback_guard import check
+from eidas_rollback_guard import check, check_authenticated_acceptance
 from eidas_signed_checkpoint import verified_checkpoint_bytes
 
 SCHEMA = 'pdfcraft.eidas.rollback-snapshot.v1'
@@ -55,3 +55,22 @@ def record_signed_checkpoint(db_path, checkpoint_path, signature_path, public_ke
             'independent_state_integrity_verified': False,
             'rollback_protection_verified': False,
             'qualification': 'Indeterminate'}
+def record_authenticated_acceptance(db_path, acceptance_report, checkpoint_path, signature_path, public_key_path, pinned_key_sha256):
+    """Admit only a signed checkpoint matching both authenticated current XML lists.
+
+    Caller must obtain acceptance_report from the actual chain verifier, not JSON
+    supplied by an untrusted third party. This API cannot prove its provenance.
+    """
+    signed, _ = verified_checkpoint_bytes(checkpoint_path, signature_path, public_key_path, pinned_key_sha256)
+    finding = check_authenticated_acceptance(acceptance_report, signed)
+    for name in ('eu', 'national'):
+        actual, expected = acceptance_report[name], signed[name]
+        for field in ('sequence', 'issued', 'sha256'):
+            if actual.get(field) != expected.get(field):
+                raise ValueError('Signed checkpoint does not match authenticated current lists')
+        if not finding[name]['not_older_than_checkpoint']:
+            raise ValueError('Signed checkpoint mismatch or rollback')
+    result = record_signed_checkpoint(db_path, checkpoint_path, signature_path, public_key_path, pinned_key_sha256)
+    result['current_list_report_consistency_checked'] = True
+    result['acceptance_report_provenance_verified_by_store'] = False
+    return result
