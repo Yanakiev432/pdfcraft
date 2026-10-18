@@ -10,7 +10,7 @@ from eidas_rollback_guard import check_authenticated_acceptance
 
 MAX_CHECKPOINT_BYTES = 65536
 
-def verified_checkpoint(checkpoint_path, signature_path, public_key_path, expected_key_sha256):
+def verified_checkpoint_bytes(checkpoint_path, signature_path, public_key_path, expected_key_sha256):
     """Verify exact checkpoint bytes against an independently pinned DER SPKI digest."""
     if not isinstance(expected_key_sha256, str) or len(expected_key_sha256) != 64 or any(c not in '0123456789abcdef' for c in expected_key_sha256):
         raise ValueError('Invalid pinned public-key SHA-256')
@@ -34,6 +34,10 @@ def verified_checkpoint(checkpoint_path, signature_path, public_key_path, expect
     baseline = json.loads(raw)
     if not isinstance(baseline, dict) or baseline.get('schema') != 'pdfcraft.eidas.rollback-snapshot.v1':
         raise ValueError('Invalid checkpoint schema')
+    return baseline, raw
+
+def verified_checkpoint(checkpoint_path, signature_path, public_key_path, expected_key_sha256):
+    baseline, _ = verified_checkpoint_bytes(checkpoint_path, signature_path, public_key_path, expected_key_sha256)
     return baseline
 
 def check_signed_baseline(acceptance_report, checkpoint_path, signature_path, public_key_path, expected_key_sha256):

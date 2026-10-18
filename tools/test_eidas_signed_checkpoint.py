@@ -5,7 +5,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
-from eidas_signed_checkpoint import verified_checkpoint, check_signed_baseline
+from eidas_signed_checkpoint import verified_checkpoint, verified_checkpoint_bytes, check_signed_baseline
 
 class SignedCheckpointTests(unittest.TestCase):
     def test_signature_pin_tamper_and_replay_boundary(self):
@@ -23,6 +23,7 @@ class SignedCheckpointTests(unittest.TestCase):
             (d/'public.pem').write_bytes(public)
             args = (d/'checkpoint.json', d/'checkpoint.sig', d/'public.pem', pin)
             self.assertEqual(verified_checkpoint(*args), baseline)
+            self.assertEqual(verified_checkpoint_bytes(*args), (baseline, raw))
             accepted = dict(baseline, eu_lotl_authenticated_at_evaluation_time=True, national_tsl_authenticated_via_lotl=True)
             finding = check_signed_baseline(accepted, *args)
             self.assertTrue(finding['baseline_signature_verified'])

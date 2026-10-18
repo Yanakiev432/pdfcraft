@@ -9,16 +9,15 @@ import json
 import sqlite3
 from pathlib import Path
 from eidas_rollback_guard import check
-from eidas_signed_checkpoint import verified_checkpoint
+from eidas_signed_checkpoint import verified_checkpoint_bytes
 
 SCHEMA = 'pdfcraft.eidas.rollback-snapshot.v1'
 
 def record_signed_checkpoint(db_path, checkpoint_path, signature_path, public_key_path, pinned_key_sha256):
     """Atomically refuse older or equivocated signed checkpoints, then store high-water mark."""
-    checkpoint = verified_checkpoint(checkpoint_path, signature_path, public_key_path, pinned_key_sha256)
+    checkpoint, raw = verified_checkpoint_bytes(checkpoint_path, signature_path, public_key_path, pinned_key_sha256)
     # Validate the entire candidate before opening the database.
     check(checkpoint, checkpoint)
-    raw = Path(checkpoint_path).read_bytes()
     digest = hashlib.sha256(raw).hexdigest()
     db_path = Path(db_path)
     if not db_path.parent.is_dir():
