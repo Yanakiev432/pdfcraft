@@ -88,11 +88,8 @@ pub fn from_signature(info: &crate::pdf::SignatureInfo) -> QualificationEvidence
         Status::Valid => Evidence::Confirmed,
         Status::Unknown => Evidence::Unavailable,
     };
-    let certificate_path = if has("The signer's identity is valid.") {
-        Evidence::Confirmed
-    } else {
-        Evidence::Unavailable
-    };
+    // OS trust messages cannot authenticate the complete eIDAS certificate path.
+    let certificate_path = Evidence::Unavailable;
     let revocation = if info.details.iter().any(|d| d.message.starts_with("The signer's certificate has been revoked (")) {
         Evidence::Rejected
     } else if has("The document's embedded revocation information shows that the signer's certificate has not been revoked.") {
@@ -126,6 +123,7 @@ mod integration_tests {
         };
         assert_eq!(from_signature(&info).assess(), Qualification::Indeterminate);
         assert_eq!(from_signature(&info).trusted_time, Evidence::Unavailable);
+        assert_eq!(from_signature(&info).certificate_path, Evidence::Unavailable);
         info.status = crate::pdf::Status::Invalid;
         assert_eq!(from_signature(&info).assess(), Qualification::Indeterminate);
     }
