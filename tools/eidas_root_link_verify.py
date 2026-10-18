@@ -2,6 +2,7 @@
 """Offline root link verification. A caller-provided root pin is not an external trust anchor."""
 import hashlib
 import json
+import re
 import sys
 from cryptography import x509
 from cryptography.hazmat.primitives import serialization
@@ -9,7 +10,7 @@ from eidas_crl_verify import certs, utc
 from eidas_certificate_path_verify import _signature_ok, _valid_at, inspect as leaf_link
 
 def inspect(bundle_pem, root_pem, pinned_root_sha256, evaluation_time):
-    if not isinstance(pinned_root_sha256, str) or len(pinned_root_sha256) != 64:
+    if not isinstance(pinned_root_sha256, str) or re.fullmatch(r'[0-9a-fA-F]{64}', pinned_root_sha256) is None:
         raise ValueError('A SHA256 root pin is mandatory')
     link = leaf_link(bundle_pem, evaluation_time)
     pair = certs(bundle_pem)
@@ -30,7 +31,8 @@ def inspect(bundle_pem, root_pem, pinned_root_sha256, evaluation_time):
     except x509.ExtensionNotFound:
         ca_ok, aki_ok = False, False
     root_valid = _valid_at(root, utc(evaluation_time))
-    local_three_cert_link = bool(link['local_link_verified'] and pin_ok and signature_ok and ca_ok and aki_ok and root_valid)
+    root_self_signature_ok = root.subject == root.issuer and _signature_ok(root, root)
+    local_three_cert_link = bool(link['local_link_verified'] and pin_ok and signature_ok and ca_ok and aki_ok and root_valid and root_self_signature_ok)
     return {
         'schema': 'pdfcraft.eidas.root-link.v1',
         'root_der_sha256': actual,
@@ -39,6 +41,7 @@ def inspect(bundle_pem, root_pem, pinned_root_sha256, evaluation_time):
         'root_ca_constraints_verified': bool(ca_ok),
         'issuer_aki_matches_root_ski': aki_ok,
         'root_valid_at_evaluation_time': root_valid,
+        'root_self_signature_verified': root_self_signature_ok,
         'local_three_certificate_link_verified': local_three_cert_link,
         'independent_root_pin_provenance_verified': False,
         'full_certificate_path_verified': False,
