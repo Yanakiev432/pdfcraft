@@ -34,8 +34,8 @@ class AcceptanceTests(unittest.TestCase):
         with TemporaryDirectory() as d:
             eu, bg = Path(d)/"eu.xml", Path(d)/"bg.xml"
             eu.write_bytes(xml); bg.write_bytes(xml)
-            def mutate(_):
-                bg.write_bytes(xml + b" ")
+            def mutate(path):
+                Path(path).write_bytes(xml + b" ")
                 return {"cryptography_verified_with_untrusted_embedded_key": True}
             with patch("eidas_chain_acceptance.verify_eu", return_value={"lotl_authenticated": True}), patch("eidas_chain_acceptance.verify_xml", side_effect=mutate), patch("eidas_chain_acceptance.match_national", return_value={"pointers_unverified": [{"matching_signer_certificate": True, "location_unverified": "https://crc.bg/files/_en/TSL_BG.xml"}]}):
                 with self.assertRaisesRegex(ValueError, "changed during verification"):

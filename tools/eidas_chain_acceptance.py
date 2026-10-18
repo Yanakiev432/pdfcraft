@@ -3,6 +3,7 @@
 An authenticated EU LOTL alone is not a complete QES determination."""
 import datetime as dt, hashlib, json, os, sys, xml.etree.ElementTree as ET
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from eidas_lotl_oj_anchor import verify as verify_eu
 from eidas_lotl_national_signer_match import match as match_national
 from eidas_xmlsig_crypto_check import verify as verify_xml
@@ -36,6 +37,19 @@ def metadata(path, at):
 def file_digest(path):
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 def acceptance(eu_path, national_path, at_text):
+    """Verify private, bounded snapshots instead of mutable caller-owned paths."""
+    with TemporaryDirectory(prefix="pdfcraft-eidas-") as folder:
+        paths = []
+        for source, filename in ((eu_path, "eu.xml"), (national_path, "national.xml")):
+            with open(source, "rb") as stream:
+                raw = stream.read(8388609)
+            if not raw or len(raw) > 8388608:
+                raise ValueError("Unsafe or oversized TSL")
+            target = Path(folder) / filename
+            target.write_bytes(raw)
+            paths.append(target)
+        return _acceptance_fixed(*paths, at_text)
+def _acceptance_fixed(eu_path, national_path, at_text):
     at = timestamp(at_text)
     before_eu, before_bg = file_digest(eu_path), file_digest(national_path)
     eu = verify_eu(eu_path)
