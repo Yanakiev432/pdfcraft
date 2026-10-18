@@ -27,6 +27,10 @@ def acceptance(eu_path, national_path, at_text):
     bg = verify_xml(national_path)
     links = match_national(eu_path, national_path)
     eu_meta, bg_meta = metadata(eu_path, at), metadata(national_path, at)
+    # A national TSL must explicitly identify the expected member-state territory.
+    bg_root = ET.parse(national_path).getroot()
+    territory = bg_root.findtext("t:SchemeInformation/t:SchemeTerritory", default="", namespaces=NS)
+    if territory != "BG": raise ValueError("National TSL territory mismatch")
     national_pinned = any(p["matching_signer_certificate"] and p["location_unverified"].endswith("/TSL_BG.xml") for p in links["pointers_unverified"])
     eu_ok = bool(eu["lotl_authenticated"] and eu_meta["within_publication_window"])
     bg_ok = bool(eu_ok and bg["cryptography_verified_with_untrusted_embedded_key"] and national_pinned and bg_meta["within_publication_window"])
