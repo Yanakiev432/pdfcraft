@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Conservative EU LOTL -> national TSL acceptance with expiry and sequence checks.
 An authenticated EU LOTL alone is not a complete QES determination."""
-import datetime as dt, json, os, sys, xml.etree.ElementTree as ET
+import datetime as dt, hashlib, json, os, sys, xml.etree.ElementTree as ET
 from pathlib import Path
 from eidas_lotl_oj_anchor import verify as verify_eu
 from eidas_lotl_national_signer_match import match as match_national
@@ -42,6 +42,9 @@ def acceptance(eu_path, national_path, at_text):
     national_pinned = any(p["matching_signer_certificate"] and p["location_unverified"].endswith("/TSL_BG.xml") for p in links["pointers_unverified"])
     eu_ok = bool(eu["lotl_authenticated"] and eu_meta["within_publication_window"])
     bg_ok = bool(eu_ok and bg["cryptography_verified_with_untrusted_embedded_key"] and national_pinned and bg_meta["within_publication_window"])
+    # Bind acceptance to exact bytes so later snapshot comparison cannot mix inputs.
+    eu_meta["sha256"] = hashlib.sha256(Path(eu_path).read_bytes()).hexdigest()
+    bg_meta["sha256"] = hashlib.sha256(Path(national_path).read_bytes()).hexdigest()
     return {"evaluation_time": at.isoformat(), "eu": eu_meta, "national": bg_meta,
             "eu_lotl_authenticated_at_evaluation_time": eu_ok,
             "national_tsl_authenticated_via_lotl": bg_ok,
