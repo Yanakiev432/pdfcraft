@@ -1,4 +1,5 @@
 //! Explicitly opted-in local DSS verification, delegated to the pinned Python adapter.
+use sha2::{Digest, Sha256};
 use std::path::Path;
 use std::process::Command;
 
@@ -25,6 +26,11 @@ pub(crate) fn verify(args: &[String]) -> Result<String, String> {
     let verdict: serde_json::Value = serde_json::from_slice(&output.stdout).map_err(|e| format!("invalid local DSS JSON: {e}"))?;
     if verdict.get("schema").and_then(serde_json::Value::as_str) != Some("pdfcraft.eidas.independent-dss.v1") {
         return Err("unexpected DSS adapter schema".into());
+    }
+    let pdf_bytes = std::fs::read(pdf).map_err(|e| format!("PDF digest read failed: {e}"))?;
+    let actual_digest = Sha256::digest(&pdf_bytes).iter().map(|byte| format!("{byte:02x}")).collect::<String>();
+    if verdict.get("pdf_sha256").and_then(serde_json::Value::as_str) != Some(actual_digest.as_str()) {
+        return Err("PDF SHA-256 mismatch between adapter report and current file".into());
     }
     Ok(verdict.to_string())
 }
