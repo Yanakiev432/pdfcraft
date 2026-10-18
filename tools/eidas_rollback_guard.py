@@ -1,12 +1,25 @@
 #!/usr/bin/env python3
 """Read-only rollback guard against a previously authenticated local checkpoint.
 Checkpoint integrity and provenance MUST be protected by the caller; no auto-trust."""
-import datetime as dt, json, sys
+import datetime as dt, hashlib, json, sys
 from pathlib import Path
+from eidas_chain_acceptance import metadata
 def parse(value):
     result = dt.datetime.fromisoformat(value.replace("Z", "+00:00"))
     if result.tzinfo is None: raise ValueError("Timestamp without timezone")
     return result.astimezone(dt.timezone.utc)
+def snapshot(eu_path, national_path, at_text):
+    """Produce a reproducible, UNTRUSTED baseline; caller must authenticate and protect it."""
+    at = parse(at_text)
+    def entry(path):
+        item = metadata(path, at)
+        item["sha256"] = hashlib.sha256(Path(path).read_bytes()).hexdigest()
+        return item
+    return {"schema": "pdfcraft.eidas.rollback-snapshot.v1",
+            "eu": entry(eu_path), "national": entry(national_path),
+            "checkpoint_provenance_verified": False,
+            "rollback_protection_verified": False,
+            "qualification": "Indeterminate"}
 def compare(current, previous):
     if not isinstance(current["sequence"], int) or not isinstance(previous["sequence"], int): raise ValueError("Invalid sequence")
     if current["sequence"] < 1 or previous["sequence"] < 1: raise ValueError("Invalid sequence")
@@ -29,5 +42,8 @@ def check(current, baseline):
             "national": compare(current["national"], baseline["national"]),
             "rollback_protection_verified": False, "qualification": "Indeterminate"}
 if __name__ == "__main__":
-    if len(sys.argv) != 3: raise SystemExit("usage: eidas_rollback_guard.py CURRENT.json PREVIOUS_TRUSTED.json")
+    if len(sys.argv) == 5 and sys.argv[1] == "--snapshot":
+        print(json.dumps(snapshot(*sys.argv[2:]), indent=2))
+        raise SystemExit(0)
+    if len(sys.argv) != 3: raise SystemExit("usage: eidas_rollback_guard.py CURRENT.json PREVIOUS_TRUSTED.json | --snapshot EU.xml BG.xml ISO8601")
     print(json.dumps(check(json.loads(Path(sys.argv[1]).read_text()), json.loads(Path(sys.argv[2]).read_text())), indent=2))

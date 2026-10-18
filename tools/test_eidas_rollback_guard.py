@@ -1,7 +1,21 @@
 import unittest
-from eidas_rollback_guard import compare
+from eidas_rollback_guard import compare, snapshot
+from pathlib import Path
+from tempfile import TemporaryDirectory
 class RollbackGuardTests(unittest.TestCase):
     old = {"sequence": 64, "issued": "2026-06-01T11:07:50+00:00"}
+    def test_snapshot_records_hash_without_claiming_trust(self):
+        xml = """<TrustServiceStatusList xmlns="http://uri.etsi.org/02231/v2#"><SchemeInformation><TSLSequenceNumber>1</TSLSequenceNumber><ListIssueDateTime>2026-10-01T00:00:00Z</ListIssueDateTime><NextUpdate><dateTime>2026-11-01T00:00:00Z</dateTime></NextUpdate></SchemeInformation></TrustServiceStatusList>"""
+        with TemporaryDirectory() as d:
+            a, b = Path(d)/"eu.xml", Path(d)/"bg.xml"
+            a.write_text(xml)
+            b.write_text(xml)
+            result = snapshot(a, b, "2026-10-18T00:00:00Z")
+            self.assertEqual(result["schema"], "pdfcraft.eidas.rollback-snapshot.v1")
+            self.assertEqual(len(result["eu"]["sha256"]), 64)
+            self.assertEqual(result["eu"]["sha256"], result["national"]["sha256"])
+            self.assertFalse(result["checkpoint_provenance_verified"])
+            self.assertFalse(result["rollback_protection_verified"])
     def test_equal(self):
         self.assertTrue(compare(self.old, self.old)["not_older_than_checkpoint"])
     def test_sequence_rollback(self):
