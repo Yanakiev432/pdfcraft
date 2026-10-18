@@ -21,7 +21,7 @@ def snapshot(eu_path, national_path, at_text):
             "rollback_protection_verified": False,
             "qualification": "Indeterminate"}
 def compare(current, previous):
-    if not isinstance(current["sequence"], int) or not isinstance(previous["sequence"], int): raise ValueError("Invalid sequence")
+    if type(current["sequence"]) is not int or type(previous["sequence"]) is not int: raise ValueError("Invalid sequence")
     if current["sequence"] < 1 or previous["sequence"] < 1: raise ValueError("Invalid sequence")
     old_date, new_date = parse(previous["issued"]), parse(current["issued"])
     rollback = current["sequence"] < previous["sequence"] or new_date < old_date
@@ -32,12 +32,19 @@ def compare(current, previous):
         if digest is not None and (not isinstance(digest, str) or len(digest) != 64 or any(c not in "0123456789abcdef" for c in digest)):
             raise ValueError("Invalid SHA-256 digest")
     same_version = current["sequence"] == previous["sequence"]
-    equivocation = same_version and (new_date != old_date or (old_hash is not None and new_hash is not None and old_hash != new_hash))
+    # A sequence change must not reuse an issue timestamp; this is ambiguous.
+    inconsistent = (not same_version and new_date == old_date)
+    equivocation = inconsistent or (same_version and (new_date != old_date or (old_hash is not None and new_hash is not None and old_hash != new_hash)))
     return {"rollback_detected": rollback, "sequence_equivocation_detected": equivocation,
             "not_older_than_checkpoint": not rollback and not equivocation,
             "checkpoint_provenance_verified": False,
             "content_identity_compared": old_hash is not None and new_hash is not None}
 def check(current, baseline):
+    if current.get("schema") != "pdfcraft.eidas.rollback-snapshot.v1" or baseline.get("schema") != "pdfcraft.eidas.rollback-snapshot.v1":
+        raise ValueError("Unrecognized snapshot schema")
+    for record in (current, baseline):
+        for name in ("eu", "national"):
+            if "sha256" not in record[name]: raise ValueError("Missing content digest")
     return {"eu": compare(current["eu"], baseline["eu"]),
             "national": compare(current["national"], baseline["national"]),
             "rollback_protection_verified": False, "qualification": "Indeterminate"}

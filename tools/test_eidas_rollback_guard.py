@@ -1,5 +1,5 @@
 import unittest
-from eidas_rollback_guard import compare, snapshot
+from eidas_rollback_guard import compare, snapshot, check
 from pathlib import Path
 from tempfile import TemporaryDirectory
 class RollbackGuardTests(unittest.TestCase):
@@ -16,6 +16,19 @@ class RollbackGuardTests(unittest.TestCase):
             self.assertEqual(result["eu"]["sha256"], result["national"]["sha256"])
             self.assertFalse(result["checkpoint_provenance_verified"])
             self.assertFalse(result["rollback_protection_verified"])
+    def test_boolean_sequence_is_rejected(self):
+        with self.assertRaises(ValueError):
+            compare(dict(self.old, sequence=True), self.old)
+    def test_new_sequence_with_unchanged_issue_date_is_ambiguous(self):
+        self.assertTrue(compare(dict(self.old, sequence=65), self.old)["sequence_equivocation_detected"])
+    def test_checkpoint_comparison_requires_schema_and_digests(self):
+        entry = dict(self.old, sha256="a" * 64)
+        record = {"schema": "pdfcraft.eidas.rollback-snapshot.v1", "eu": entry, "national": entry}
+        self.assertFalse(check(record, record)["rollback_protection_verified"])
+        with self.assertRaises(ValueError):
+            check(dict(record, schema="other"), record)
+        with self.assertRaises(ValueError):
+            check(dict(record, national=self.old), record)
     def test_equal(self):
         self.assertTrue(compare(self.old, self.old)["not_older_than_checkpoint"])
     def test_sequence_rollback(self):
