@@ -9,10 +9,11 @@ from eidas_ca_qc_time_match import evaluate as ca_evaluate
 from eidas_revocation_report import inspect as revocation_inspect
 from eidas_certificate_path_verify import inspect as certificate_link_inspect
 from eidas_root_link_verify import inspect as root_link_inspect
+from eidas_pdf_cms_integrity import inspect as pdf_cms_inspect
 
 SCHEMA = 'pdfcraft.eidas.btrust-evidence-synthesis.v1'
 
-def synthesize(pdf, eu_xml, bg_xml, pem, crl, ocsp, evaluation_time, root_pem=None, root_sha256=None):
+def synthesize(pdf, eu_xml, bg_xml, pem, crl, ocsp, evaluation_time, root_pem=None, root_sha256=None, verify_pdf_cms=False):
     lists = acceptance(eu_xml, bg_xml, evaluation_time)
     if lists.get('eu_lotl_authenticated_at_evaluation_time') is not True or lists.get('national_tsl_authenticated_via_lotl') is not True:
         raise ValueError('EU LOTL / BG TSL chain not authenticated')
@@ -28,6 +29,7 @@ def synthesize(pdf, eu_xml, bg_xml, pem, crl, ocsp, evaluation_time, root_pem=No
         if not root_pem or not root_sha256:
             raise ValueError('Root PEM and root SHA-256 must be provided together')
         root_link = root_link_inspect(pem, root_pem, root_sha256, evaluation_time)
+    pdf_cms = pdf_cms_inspect(pdf) if verify_pdf_cms else None
     revocation = revocation_inspect(pem, crl, ocsp, evaluation_time)
     if revocation.get('schema') != 'pdfcraft.eidas.revocation-evidence.v1':
         raise ValueError('Unexpected revocation evidence schema')
@@ -52,6 +54,7 @@ def synthesize(pdf, eu_xml, bg_xml, pem, crl, ocsp, evaluation_time, root_pem=No
         'certificate_link': certificate_link,
         'issuer_ca_qc_identity_bound_to_authenticated_tsl': issuer_tsl_bound,
         'root_link': root_link,
+        'pdf_cms_integrity': pdf_cms,
         'revocation_observation': revocation['combined_observation'],
         'revocation_evidence_sha256': revocation['inputs_sha256'],
         'trusted_signing_time_verified': False,
@@ -69,6 +72,7 @@ if __name__ == '__main__':
         parser.add_argument(arg)
     parser.add_argument('--root-pem', default=None)
     parser.add_argument('--root-sha256', default=None)
+    parser.add_argument('--verify-pdf-cms', action='store_true')
     args = parser.parse_args()
     print(json.dumps(synthesize(args.pdf, args.eu_xml, args.bg_xml, args.pem,
-                                args.crl, args.ocsp, args.evaluation_time, args.root_pem, args.root_sha256), indent=2))
+                                args.crl, args.ocsp, args.evaluation_time, args.root_pem, args.root_sha256, args.verify_pdf_cms), indent=2))
