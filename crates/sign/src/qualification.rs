@@ -468,6 +468,15 @@ mod offline_report_tests {
         assert!(from_offline_revocation_report(preliminary(), &doc.to_string()).is_err());
     }
     #[test]
+    fn external_python_evidence_report_remains_indeterminate() {
+        let Ok(path) = std::env::var("PDFCRAFT_EIDAS_REVOCATION_REPORT") else { return };
+        let json = std::fs::read_to_string(path).expect("read test evidence report");
+        let result = from_offline_revocation_report(preliminary(), &json).expect("accept report schema");
+        assert_eq!(result.revocation, Evidence::Unavailable);
+        assert_eq!(result.assess(), Qualification::Indeterminate);
+    }
+
+    #[test]
     fn invalid_or_oversized_json_is_rejected() {
         assert!(from_offline_revocation_report(preliminary(), "{}").is_err());
         assert!(from_offline_revocation_report(preliminary(), &"x".repeat(262_145)).is_err());
