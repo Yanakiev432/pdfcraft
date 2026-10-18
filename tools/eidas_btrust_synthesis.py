@@ -7,6 +7,7 @@ from pathlib import Path
 from eidas_chain_acceptance import acceptance
 from eidas_ca_qc_time_match import evaluate as ca_evaluate
 from eidas_revocation_report import inspect as revocation_inspect
+from eidas_certificate_path_verify import inspect as certificate_link_inspect
 
 SCHEMA = 'pdfcraft.eidas.btrust-evidence-synthesis.v1'
 
@@ -20,6 +21,7 @@ def synthesize(pdf, eu_xml, bg_xml, pem, crl, ocsp, evaluation_time):
     ca = ca_evaluate(pdf, bg_xml, evaluation_time)
     if hashlib.sha256(Path(bg_xml).read_bytes()).hexdigest() != lists['national']['sha256']:
         raise ValueError('National TSL changed during CA/QC matching')
+    certificate_link = certificate_link_inspect(pem, evaluation_time)
     revocation = revocation_inspect(pem, crl, ocsp, evaluation_time)
     if revocation.get('schema') != 'pdfcraft.eidas.revocation-evidence.v1':
         raise ValueError('Unexpected revocation evidence schema')
@@ -36,6 +38,7 @@ def synthesize(pdf, eu_xml, bg_xml, pem, crl, ocsp, evaluation_time):
         'trusted_lists': {'eu': lists['eu'], 'national': lists['national']},
         'ca_qc_service_candidates_at_evaluation_time': len(matched),
         'ca_qc_candidate_cert_sha256': sorted({digest for x in matched for digest in x.get('matched_der_sha256', [])}),
+        'certificate_link': certificate_link,
         'revocation_observation': revocation['combined_observation'],
         'revocation_evidence_sha256': revocation['inputs_sha256'],
         'trusted_signing_time_verified': False,

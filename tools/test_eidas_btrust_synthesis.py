@@ -6,10 +6,11 @@ from unittest.mock import patch
 from eidas_btrust_synthesis import synthesize
 
 class SynthesisTests(unittest.TestCase):
+    @patch('eidas_btrust_synthesis.certificate_link_inspect', return_value={'local_link_verified': True, 'full_certificate_path_verified': False})
     @patch('eidas_btrust_synthesis.revocation_inspect')
     @patch('eidas_btrust_synthesis.ca_evaluate')
     @patch('eidas_btrust_synthesis.acceptance')
-    def test_synthesis_never_infers_qes_from_good_crl_ocsp_and_ca(self, lists, ca, rev):
+    def test_synthesis_never_infers_qes_from_good_crl_ocsp_and_ca(self, lists, ca, rev, cert):
         with TemporaryDirectory() as directory:
             bg = Path(directory) / 'bg.xml'
             bg.write_bytes(b'original national list')
@@ -34,10 +35,11 @@ class SynthesisTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             synthesize('pdf', 'eu', 'bg', 'pem', 'crl', 'ocsp', '2026-10-18T14:30:00Z')
 
+    @patch('eidas_btrust_synthesis.certificate_link_inspect', return_value={'local_link_verified': True})
     @patch('eidas_btrust_synthesis.revocation_inspect')
     @patch('eidas_btrust_synthesis.ca_evaluate')
     @patch('eidas_btrust_synthesis.acceptance')
-    def test_national_tsl_swap_is_rejected(self, lists, ca, rev):
+    def test_national_tsl_swap_is_rejected(self, lists, ca, rev, cert):
         with TemporaryDirectory() as directory:
             bg = Path(directory) / 'bg.xml'
             bg.write_bytes(b'original')
