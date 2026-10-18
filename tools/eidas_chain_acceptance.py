@@ -11,8 +11,16 @@ def timestamp(value):
     parsed = dt.datetime.fromisoformat(value.replace("Z", "+00:00"))
     if parsed.tzinfo is None: raise ValueError("Timezone required")
     return parsed.astimezone(dt.timezone.utc)
+def safe_tsl_root(path):
+    raw = Path(path).read_bytes()
+    if not raw or len(raw) > 8388608 or b"<!DOCTYPE" in raw.upper() or b"<!ENTITY" in raw.upper():
+        raise ValueError("Unsafe or oversized TSL")
+    root = ET.fromstring(raw)
+    if root.tag != "{http://uri.etsi.org/02231/v2#}TrustServiceStatusList":
+        raise ValueError("Unexpected TSL root")
+    return root
 def metadata(path, at):
-    root = ET.parse(path).getroot()
+    root = safe_tsl_root(path)
     info = root.find("t:SchemeInformation", NS)
     if info is None: raise ValueError("Missing scheme information")
     seq = int(info.findtext("t:TSLSequenceNumber", namespaces=NS))
@@ -28,7 +36,7 @@ def acceptance(eu_path, national_path, at_text):
     links = match_national(eu_path, national_path)
     eu_meta, bg_meta = metadata(eu_path, at), metadata(national_path, at)
     # A national TSL must explicitly identify the expected member-state territory.
-    bg_root = ET.parse(national_path).getroot()
+    bg_root = safe_tsl_root(national_path)
     territory = bg_root.findtext("t:SchemeInformation/t:SchemeTerritory", default="", namespaces=NS)
     if territory != "BG": raise ValueError("National TSL territory mismatch")
     national_pinned = any(p["matching_signer_certificate"] and p["location_unverified"].endswith("/TSL_BG.xml") for p in links["pointers_unverified"])
