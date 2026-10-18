@@ -2,6 +2,8 @@
 """Single-run offline B-Trust eIDAS evidence synthesis, conservative by construction."""
 import argparse
 import json
+import hashlib
+from pathlib import Path
 from eidas_chain_acceptance import acceptance
 from eidas_ca_qc_time_match import evaluate as ca_evaluate
 from eidas_revocation_report import inspect as revocation_inspect
@@ -12,7 +14,12 @@ def synthesize(pdf, eu_xml, bg_xml, pem, crl, ocsp, evaluation_time):
     lists = acceptance(eu_xml, bg_xml, evaluation_time)
     if lists.get('eu_lotl_authenticated_at_evaluation_time') is not True or lists.get('national_tsl_authenticated_via_lotl') is not True:
         raise ValueError('EU LOTL / BG TSL chain not authenticated')
+    # Bind CA/QC matching to the exact national TSL bytes authenticated above.
+    if hashlib.sha256(Path(bg_xml).read_bytes()).hexdigest() != lists['national']['sha256']:
+        raise ValueError('National TSL changed after authentication')
     ca = ca_evaluate(pdf, bg_xml, evaluation_time)
+    if hashlib.sha256(Path(bg_xml).read_bytes()).hexdigest() != lists['national']['sha256']:
+        raise ValueError('National TSL changed during CA/QC matching')
     revocation = revocation_inspect(pem, crl, ocsp, evaluation_time)
     if revocation.get('schema') != 'pdfcraft.eidas.revocation-evidence.v1':
         raise ValueError('Unexpected revocation evidence schema')
