@@ -29,7 +29,7 @@ def synthesize(pdf, eu_xml, bg_xml, pem, crl, ocsp, evaluation_time, root_pem=No
         if not root_pem or not root_sha256:
             raise ValueError('Root PEM and root SHA-256 must be provided together')
         root_link = root_link_inspect(pem, root_pem, root_sha256, evaluation_time)
-    pdf_cms = pdf_cms_inspect(pdf) if verify_pdf_cms else None
+    pdf_cms = pdf_cms_inspect(pdf, pem) if verify_pdf_cms else None
     revocation = revocation_inspect(pem, crl, ocsp, evaluation_time)
     if revocation.get('schema') != 'pdfcraft.eidas.revocation-evidence.v1':
         raise ValueError('Unexpected revocation evidence schema')

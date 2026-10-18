@@ -33,6 +33,17 @@ class IntegrityTests(unittest.TestCase):
                 run.return_value.returncode = 4
                 self.assertFalse(inspect(path)['cms_detached_signature_integrity_verified'])
 
+    def test_expected_signer_requires_real_exported_certificate(self):
+        with TemporaryDirectory() as folder:
+            path = Path(folder)/'a.pdf'
+            expected = Path(folder)/'expected.pem'
+            path.write_bytes(pdf())
+            expected.write_bytes(b'not a PEM certificate')
+            with patch('eidas_pdf_cms_integrity.subprocess.run') as run:
+                run.return_value.returncode = 0
+                with self.assertRaisesRegex(ValueError, 'Expected signer certificate missing'):
+                    inspect(path, expected)
+
     def test_gap_must_be_cms_hex(self):
         with TemporaryDirectory() as folder:
             path = Path(folder)/'a.pdf'
