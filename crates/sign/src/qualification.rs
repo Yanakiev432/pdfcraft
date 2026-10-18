@@ -285,6 +285,82 @@ mod provenance_tests {
         assert_eq!(with_verified_trusted_list(b, finding(), provenance()).assess(), Qualification::NotQualified);
     }
 }
+/// Evidence required to promote an eIDAS issuer path, not merely OS trust.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct CertificatePathProvenance {
+    pub signatures_verified: bool,
+    pub issuer_identity_verified: bool,
+    pub trust_anchor_authenticated: bool,
+    pub constraints_and_policies_verified: bool,
+    pub validity_at_trusted_time_verified: bool,
+}
+
+impl CertificatePathProvenance {
+    pub const fn fully_verified(self) -> bool {
+        self.signatures_verified && self.issuer_identity_verified
+            && self.trust_anchor_authenticated && self.constraints_and_policies_verified
+            && self.validity_at_trusted_time_verified
+    }
+}
+
+/// Reject a path claim until all independent chain checks have succeeded.
+pub fn with_verified_certificate_path(
+    mut preliminary: QualificationEvidence,
+    finding: Evidence,
+    provenance: CertificatePathProvenance,
+) -> QualificationEvidence {
+    preliminary.certificate_path = if provenance.fully_verified() {
+        finding
+    } else {
+        Evidence::Unavailable
+    };
+    preliminary
+}
+
+#[cfg(test)]
+mod certificate_path_provenance_tests {
+    use super::*;
+    fn all() -> CertificatePathProvenance {
+        CertificatePathProvenance {
+            signatures_verified: true,
+            issuer_identity_verified: true,
+            trust_anchor_authenticated: true,
+            constraints_and_policies_verified: true,
+            validity_at_trusted_time_verified: true,
+        }
+    }
+    fn baseline() -> QualificationEvidence {
+        QualificationEvidence {
+            cryptographic_integrity: Evidence::Confirmed,
+            certificate_path: Evidence::Unavailable,
+            revocation: Evidence::Confirmed,
+            trusted_time: Evidence::Confirmed,
+            eu_trusted_service: Evidence::Confirmed,
+            qualified_certificate_and_qscd: Evidence::Confirmed,
+        }
+    }
+    #[test]
+    fn every_path_provenance_flag_is_mandatory() {
+        let p = all();
+        assert_eq!(with_verified_certificate_path(baseline(), Evidence::Confirmed, p).assess(), Qualification::Qualified);
+        for i in 0..5 {
+            let mut q = p;
+            match i {
+                0 => q.signatures_verified = false,
+                1 => q.issuer_identity_verified = false,
+                2 => q.trust_anchor_authenticated = false,
+                3 => q.constraints_and_policies_verified = false,
+                _ => q.validity_at_trusted_time_verified = false,
+            }
+            assert_eq!(with_verified_certificate_path(baseline(), Evidence::Confirmed, q).assess(), Qualification::Indeterminate);
+            assert_eq!(with_verified_certificate_path(baseline(), Evidence::Rejected, q).certificate_path, Evidence::Unavailable);
+        }
+    }
+    #[test]
+    fn authenticated_negative_path_finding_is_preserved() {
+        assert_eq!(with_verified_certificate_path(baseline(), Evidence::Rejected, all()).assess(), Qualification::NotQualified);
+    }
+}
 /// The preliminary PDF report may consume independently verified revocation
 /// evidence only after the verifier has authenticated issuer, scope, response
 /// signature, certificate identity and a trusted evaluation time.
