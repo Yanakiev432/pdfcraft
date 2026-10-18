@@ -1,5 +1,5 @@
 import unittest
-from eidas_chain_acceptance import timestamp, safe_tsl_root, acceptance
+from eidas_chain_acceptance import timestamp, safe_tsl_root, acceptance, matching_bg_pointer
 from unittest.mock import patch
 import hashlib
 from tempfile import TemporaryDirectory
@@ -18,6 +18,16 @@ class AcceptanceTests(unittest.TestCase):
             self.assertEqual(result["national"]["sha256"], hashlib.sha256(bg.read_bytes()).hexdigest())
             self.assertTrue(result["national_tsl_authenticated_via_lotl"])
             self.assertFalse(result["rollback_protection_verified"])
+    def test_bg_pointer_requires_exact_canonical_url_and_signer(self):
+        good = {"matching_signer_certificate": True,
+                "location_unverified": "https://crc.bg/files/_en/TSL_BG.xml"}
+        self.assertTrue(matching_bg_pointer([good]))
+        for location in ("https://evil.example/TSL_BG.xml",
+                         "https://evil.example/https://crc.bg/files/_en/TSL_BG.xml",
+                         "http://crc.bg/files/_en/TSL_BG.xml",
+                         "https://crc.bg/files/_en/TSL_BG.xml?x=1"):
+            self.assertFalse(matching_bg_pointer([dict(good, location_unverified=location)]))
+        self.assertFalse(matching_bg_pointer([dict(good, matching_signer_certificate=False)]))
     def test_timezone(self):
         self.assertEqual(timestamp("2026-10-17T23:00:00+03:00").isoformat(), "2026-10-17T20:00:00+00:00")
     def test_rejects_doctype_entity_and_wrong_root(self):
