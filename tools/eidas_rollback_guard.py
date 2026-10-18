@@ -12,10 +12,18 @@ def compare(current, previous):
     if current["sequence"] < 1 or previous["sequence"] < 1: raise ValueError("Invalid sequence")
     old_date, new_date = parse(previous["issued"]), parse(current["issued"])
     rollback = current["sequence"] < previous["sequence"] or new_date < old_date
-    equivocation = current["sequence"] == previous["sequence"] and new_date != old_date
+    # Identical sequence and issue date are not sufficient to establish
+    # identical list contents. Detect substitution when both digests exist.
+    old_hash, new_hash = previous.get("sha256"), current.get("sha256")
+    for digest in (old_hash, new_hash):
+        if digest is not None and (not isinstance(digest, str) or len(digest) != 64 or any(c not in "0123456789abcdef" for c in digest)):
+            raise ValueError("Invalid SHA-256 digest")
+    same_version = current["sequence"] == previous["sequence"]
+    equivocation = same_version and (new_date != old_date or (old_hash is not None and new_hash is not None and old_hash != new_hash))
     return {"rollback_detected": rollback, "sequence_equivocation_detected": equivocation,
             "not_older_than_checkpoint": not rollback and not equivocation,
-            "checkpoint_provenance_verified": False}
+            "checkpoint_provenance_verified": False,
+            "content_identity_compared": old_hash is not None and new_hash is not None}
 def check(current, baseline):
     return {"eu": compare(current["eu"], baseline["eu"]),
             "national": compare(current["national"], baseline["national"]),
