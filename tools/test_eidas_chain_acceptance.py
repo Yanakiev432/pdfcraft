@@ -28,6 +28,18 @@ class AcceptanceTests(unittest.TestCase):
                          "https://crc.bg/files/_en/TSL_BG.xml?x=1"):
             self.assertFalse(matching_bg_pointer([dict(good, location_unverified=location)]))
         self.assertFalse(matching_bg_pointer([dict(good, matching_signer_certificate=False)]))
+    def test_rejects_file_changed_during_verification(self):
+        ns = "http://uri.etsi.org/02231/v2#"
+        xml = (f"<TrustServiceStatusList xmlns='{ns}'><SchemeInformation><SchemeTerritory>BG</SchemeTerritory><TSLSequenceNumber>1</TSLSequenceNumber><ListIssueDateTime>2026-10-01T00:00:00Z</ListIssueDateTime><NextUpdate><dateTime>2026-11-01T00:00:00Z</dateTime></NextUpdate></SchemeInformation></TrustServiceStatusList>").encode()
+        with TemporaryDirectory() as d:
+            eu, bg = Path(d)/"eu.xml", Path(d)/"bg.xml"
+            eu.write_bytes(xml); bg.write_bytes(xml)
+            def mutate(_):
+                bg.write_bytes(xml + b" ")
+                return {"cryptography_verified_with_untrusted_embedded_key": True}
+            with patch("eidas_chain_acceptance.verify_eu", return_value={"lotl_authenticated": True}), patch("eidas_chain_acceptance.verify_xml", side_effect=mutate), patch("eidas_chain_acceptance.match_national", return_value={"pointers_unverified": [{"matching_signer_certificate": True, "location_unverified": "https://crc.bg/files/_en/TSL_BG.xml"}]}):
+                with self.assertRaisesRegex(ValueError, "changed during verification"):
+                    acceptance(eu, bg, "2026-10-18T00:00:00Z")
     def test_timezone(self):
         self.assertEqual(timestamp("2026-10-17T23:00:00+03:00").isoformat(), "2026-10-17T20:00:00+00:00")
     def test_rejects_doctype_entity_and_wrong_root(self):

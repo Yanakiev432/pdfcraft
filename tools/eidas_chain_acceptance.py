@@ -33,8 +33,11 @@ def metadata(path, at):
     if seq < 1 or next_update <= issued: raise ValueError("Invalid sequence or time range")
     return {"sequence": seq, "issued": issued.isoformat(), "next_update": next_update.isoformat(),
             "within_publication_window": issued <= at < next_update}
+def file_digest(path):
+    return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 def acceptance(eu_path, national_path, at_text):
     at = timestamp(at_text)
+    before_eu, before_bg = file_digest(eu_path), file_digest(national_path)
     eu = verify_eu(eu_path)
     bg = verify_xml(national_path)
     links = match_national(eu_path, national_path)
@@ -47,8 +50,10 @@ def acceptance(eu_path, national_path, at_text):
     eu_ok = bool(eu["lotl_authenticated"] and eu_meta["within_publication_window"])
     bg_ok = bool(eu_ok and bg["cryptography_verified_with_untrusted_embedded_key"] and national_pinned and bg_meta["within_publication_window"])
     # Bind acceptance to exact bytes so later snapshot comparison cannot mix inputs.
-    eu_meta["sha256"] = hashlib.sha256(Path(eu_path).read_bytes()).hexdigest()
-    bg_meta["sha256"] = hashlib.sha256(Path(national_path).read_bytes()).hexdigest()
+    after_eu, after_bg = file_digest(eu_path), file_digest(national_path)
+    if (before_eu, before_bg) != (after_eu, after_bg):
+        raise ValueError("Trusted-list input changed during verification")
+    eu_meta["sha256"], bg_meta["sha256"] = before_eu, before_bg
     return {"evaluation_time": at.isoformat(), "eu": eu_meta, "national": bg_meta,
             "eu_lotl_authenticated_at_evaluation_time": eu_ok,
             "national_tsl_authenticated_via_lotl": bg_ok,
