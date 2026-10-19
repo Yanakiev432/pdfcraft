@@ -1398,10 +1398,12 @@ fn opt_in_real_windows_token_sign_once() {
     let target = std::path::Path::new(&output);
     assert!(!target.exists(), "refuse to overwrite existing output");
     let id = pdfcraft_sign::windows::find(&reference).expect("selected identity");
-    let mut options = SignOptions::default();
-    options.field = Some("Approval".into());
-    options.reason = Some("PdfCraft hardware signing integration test".into());
-    options.date = format!("D:{}Z", std::env::var("PDFCRAFT_REAL_SIGN_UTC").expect("explicit UTC signing date"));
+    let options = SignOptions {
+        field: Some("Approval".into()),
+        reason: Some("PdfCraft hardware signing integration test".into()),
+        date: format!("D:{}Z", std::env::var("PDFCRAFT_REAL_SIGN_UTC").expect("explicit UTC signing date")),
+        ..SignOptions::default()
+    };
     let signed = pdfcraft_sign::sign(&open(&fixture()), &id, &options).expect("one signing attempt");
     let validation = signatures(&open(&signed), &signed, &TrustStore { certs: vec![id.certificate.clone()] });
     let signature = validation.iter().find(|s| s.signed).expect("signed field");
