@@ -87,7 +87,6 @@ mod tests {
 /// trusted-list and QSCD verification require separate authenticated inputs.
 pub fn from_signature(info: &crate::pdf::SignatureInfo) -> QualificationEvidence {
     use crate::pdf::Status;
-    let has = |message: &str| info.details.iter().any(|d| d.message == message);
     let integrity = match info.status {
         Status::Invalid => Evidence::Unavailable,
         Status::Valid => Evidence::Confirmed,
@@ -97,9 +96,10 @@ pub fn from_signature(info: &crate::pdf::SignatureInfo) -> QualificationEvidence
     let certificate_path = Evidence::Unavailable;
     let revocation = if info.details.iter().any(|d| d.message.starts_with("The signer's certificate has been revoked (")) {
         Evidence::Rejected
-    } else if has("The document's embedded revocation information shows that the signer's certificate has not been revoked.") {
-        Evidence::Unavailable
     } else {
+        // Embedded revocation data is not sufficient to assert qualified status:
+        // issuer, responder, validity interval, and historical EU trust need
+        // authenticated independent verification first.
         Evidence::Unavailable
     };
     QualificationEvidence {
