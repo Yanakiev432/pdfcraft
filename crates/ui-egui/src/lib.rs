@@ -2224,8 +2224,7 @@ impl PdfCraftApp {
 
     /// Serialize the user's persistent state (recent files, theme). Local only.
     pub fn persist(&self) -> String {
-        let trusted: Vec<String> = self.user_trusted_certificates.iter()
-            .map(pdfcraft_engine::sign::x509::to_pem).collect();
+        let trusted: Vec<String> = self.user_trusted_certificates.iter().map(pdfcraft_engine::sign::x509::to_pem).collect();
         let mut v = serde_json::json!({
             "docking": self.docking,
             "docking_left_open": self.left_open,
@@ -2450,7 +2449,8 @@ impl PdfCraftApp {
             self.session.set_javascript(on);
         }
         if let Ok(pems) = serde_json::from_value::<Vec<String>>(v["trusted"].clone()) {
-            let certs: Vec<pdfcraft_engine::sign::Certificate> = pems.iter().filter_map(|p| pdfcraft_engine::sign::x509::load_certificates(p.as_bytes()).ok()).flatten().collect();
+            let certs: Vec<pdfcraft_engine::sign::Certificate> =
+                pems.iter().filter_map(|p| pdfcraft_engine::sign::x509::load_certificates(p.as_bytes()).ok()).flatten().collect();
             // Version 2 stores explicit user trust only. Legacy entries can include OS roots.
             #[cfg(target_os = "windows")]
             let certs = if v["trusted_source_version"].as_u64() == Some(2) {
@@ -2466,7 +2466,9 @@ impl PdfCraftApp {
             #[cfg(target_os = "windows")]
             if let Ok(roots) = pdfcraft_engine::sign::windows::trusted_roots() {
                 for root in roots {
-                    if !combined.iter().any(|c| c.raw == root.raw) { combined.push(root); }
+                    if !combined.iter().any(|c| c.raw == root.raw) {
+                        combined.push(root);
+                    }
                 }
             }
             self.apply_trusted_certificates(combined);

@@ -94,8 +94,7 @@ fn issuers(context: &CertContext, certificate: &Certificate) -> Vec<Certificate>
 /// Load Windows trusted root certificates (not Personal/CA certificates) for PDF validation.
 /// The OS store is authoritative; no signer certificate is trusted merely for being present.
 pub fn trusted_roots() -> Result<Vec<Certificate>, SignError> {
-    let roots = craft_signing_core::windows_trust::trusted_root_der()
-        .map_err(|e| SignError::Crypto(format!("Windows trust store: {e}")))?;
+    let roots = craft_signing_core::windows_trust::trusted_root_der().map_err(|e| SignError::Crypto(format!("Windows trust store: {e}")))?;
     Ok(roots.into_iter().filter_map(|root| Certificate::parse(&root.der).ok()).collect())
 }
 

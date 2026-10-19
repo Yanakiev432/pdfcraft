@@ -16,9 +16,9 @@ pub mod graphic;
 pub mod keychain;
 pub mod keys;
 pub mod pdf;
-pub mod pkcs12;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod pkcs11;
+pub mod pkcs12;
 pub mod providers;
 pub mod qualification;
 pub mod revocation;

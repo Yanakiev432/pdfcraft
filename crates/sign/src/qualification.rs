@@ -1,10 +1,18 @@
 //! Conservative eIDAS evidence accounting.
 //! Never infer qualified status from a certificate name or OS trust anchor.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Evidence { Confirmed, Rejected, Unavailable }
+pub enum Evidence {
+    Confirmed,
+    Rejected,
+    Unavailable,
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Qualification { Qualified, NotQualified, Indeterminate }
+pub enum Qualification {
+    Qualified,
+    NotQualified,
+    Indeterminate,
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct QualificationEvidence {
@@ -22,8 +30,12 @@ impl QualificationEvidence {
     /// Missing evidence must never be promoted to a qualified result.
     pub fn assess(self) -> Qualification {
         let checks = [
-            self.cryptographic_integrity, self.certificate_path, self.revocation,
-            self.trusted_time, self.eu_trusted_service, self.qualified_certificate_and_qscd,
+            self.cryptographic_integrity,
+            self.certificate_path,
+            self.revocation,
+            self.trusted_time,
+            self.eu_trusted_service,
+            self.qualified_certificate_and_qscd,
         ];
         if checks.contains(&Evidence::Rejected) {
             Qualification::NotQualified
@@ -54,11 +66,8 @@ mod tests {
     }
     #[test]
     fn os_trust_does_not_imply_eidas_qualification() {
-        let e = QualificationEvidence {
-            eu_trusted_service: Evidence::Unavailable,
-            qualified_certificate_and_qscd: Evidence::Unavailable,
-            ..confirmed()
-        };
+        let e =
+            QualificationEvidence { eu_trusted_service: Evidence::Unavailable, qualified_certificate_and_qscd: Evidence::Unavailable, ..confirmed() };
         assert_eq!(e.assess(), Qualification::Indeterminate);
     }
     #[test]
@@ -68,11 +77,7 @@ mod tests {
     }
     #[test]
     fn explicit_rejection_overrides_unknown() {
-        let e = QualificationEvidence {
-            cryptographic_integrity: Evidence::Rejected,
-            eu_trusted_service: Evidence::Unavailable,
-            ..confirmed()
-        };
+        let e = QualificationEvidence { cryptographic_integrity: Evidence::Rejected, eu_trusted_service: Evidence::Unavailable, ..confirmed() };
         assert_eq!(e.assess(), Qualification::NotQualified);
     }
 }
@@ -113,13 +118,31 @@ mod integration_tests {
     #[test]
     fn a_valid_signature_still_requires_eu_evidence() {
         let mut info = crate::pdf::SignatureInfo {
-            field: String::new(), signed: true, page: None, rect: None, visible: false,
-            signer: None, certificate: None, chain: Vec::new(), date: None,
-            signing_time: None, reason: None, location: None, contact: None,
-            sub_filter: None, doc_timestamp: false, certify: None, revision: 1,
-            signed_len: 0, digest: None, algorithm: None, timestamp: false,
-            timestamp_time: None, status: crate::pdf::Status::Valid,
-            modification: crate::pdf::Modification::None, details: Vec::new(),
+            field: String::new(),
+            signed: true,
+            page: None,
+            rect: None,
+            visible: false,
+            signer: None,
+            certificate: None,
+            chain: Vec::new(),
+            date: None,
+            signing_time: None,
+            reason: None,
+            location: None,
+            contact: None,
+            sub_filter: None,
+            doc_timestamp: false,
+            certify: None,
+            revision: 1,
+            signed_len: 0,
+            digest: None,
+            algorithm: None,
+            timestamp: false,
+            timestamp_time: None,
+            status: crate::pdf::Status::Valid,
+            modification: crate::pdf::Modification::None,
+            details: Vec::new(),
         };
         assert_eq!(from_signature(&info).assess(), Qualification::Indeterminate);
         assert_eq!(from_signature(&info).trusted_time, Evidence::Unavailable);
@@ -141,10 +164,7 @@ pub struct TrustedListFinding {
 impl TrustedListFinding {
     /// Fail-closed placeholder for callers without an authenticated trusted-list verifier.
     pub const fn unavailable() -> Self {
-        Self {
-            service: Evidence::Unavailable,
-            qualified_certificate_and_qscd: Evidence::Unavailable,
-        }
+        Self { service: Evidence::Unavailable, qualified_certificate_and_qscd: Evidence::Unavailable }
     }
 }
 
@@ -181,10 +201,7 @@ mod trusted_list_tests {
             eu_trusted_service: Evidence::Unavailable,
             qualified_certificate_and_qscd: Evidence::Unavailable,
         };
-        let finding = TrustedListFinding {
-            service: Evidence::Confirmed,
-            qualified_certificate_and_qscd: Evidence::Confirmed,
-        };
+        let finding = TrustedListFinding { service: Evidence::Confirmed, qualified_certificate_and_qscd: Evidence::Confirmed };
         assert_eq!(with_trusted_list(preliminary, finding).assess(), Qualification::NotQualified);
     }
 }
@@ -254,10 +271,7 @@ mod provenance_tests {
         }
     }
     fn finding() -> TrustedListFinding {
-        TrustedListFinding {
-            service: Evidence::Confirmed,
-            qualified_certificate_and_qscd: Evidence::Confirmed,
-        }
+        TrustedListFinding { service: Evidence::Confirmed, qualified_certificate_and_qscd: Evidence::Confirmed }
     }
     #[test]
     fn verified_provenance_is_required() {
@@ -297,8 +311,10 @@ pub struct CertificatePathProvenance {
 
 impl CertificatePathProvenance {
     pub const fn fully_verified(self) -> bool {
-        self.signatures_verified && self.issuer_identity_verified
-            && self.trust_anchor_authenticated && self.constraints_and_policies_verified
+        self.signatures_verified
+            && self.issuer_identity_verified
+            && self.trust_anchor_authenticated
+            && self.constraints_and_policies_verified
             && self.validity_at_trusted_time_verified
     }
 }
@@ -309,11 +325,7 @@ pub fn with_verified_certificate_path(
     finding: Evidence,
     provenance: CertificatePathProvenance,
 ) -> QualificationEvidence {
-    preliminary.certificate_path = if provenance.fully_verified() {
-        finding
-    } else {
-        Evidence::Unavailable
-    };
+    preliminary.certificate_path = if provenance.fully_verified() { finding } else { Evidence::Unavailable };
     preliminary
 }
 
@@ -375,8 +387,10 @@ pub struct RevocationProvenance {
 
 impl RevocationProvenance {
     pub const fn fully_verified(self) -> bool {
-        self.issuer_chain_verified && self.response_signature_verified
-            && self.certificate_identity_verified && self.scope_and_freshness_verified
+        self.issuer_chain_verified
+            && self.response_signature_verified
+            && self.certificate_identity_verified
+            && self.scope_and_freshness_verified
             && self.trusted_evaluation_time
     }
 }
@@ -409,8 +423,10 @@ mod revocation_provenance_tests {
     }
     fn provenance() -> RevocationProvenance {
         RevocationProvenance {
-            issuer_chain_verified: true, response_signature_verified: true,
-            certificate_identity_verified: true, scope_and_freshness_verified: true,
+            issuer_chain_verified: true,
+            response_signature_verified: true,
+            certificate_identity_verified: true,
+            scope_and_freshness_verified: true,
             trusted_evaluation_time: true,
         }
     }
@@ -468,33 +484,40 @@ struct RevocationReportProvenance {
 
 /// The report is advisory until an independent native trust/time verifier is
 /// wired in. A positive JSON claim cannot authorize a revocation finding.
-pub fn from_offline_revocation_report(
-    preliminary: QualificationEvidence, json: &str,
-) -> Result<QualificationEvidence, String> {
+pub fn from_offline_revocation_report(preliminary: QualificationEvidence, json: &str) -> Result<QualificationEvidence, String> {
     const MAX_REPORT_BYTES: usize = 262_144;
-    if json.len() > MAX_REPORT_BYTES { return Err("revocation report exceeds size limit".into()); }
+    if json.len() > MAX_REPORT_BYTES {
+        return Err("revocation report exceeds size limit".into());
+    }
     let report: RevocationReportV1 = serde_json::from_str(json).map_err(|_| "invalid revocation report schema")?;
     if report.schema != "pdfcraft.eidas.revocation-evidence.v1"
         || report.evaluation_time_claim.is_empty()
-        || report.evaluation_time_trusted || report.issuer_path_verified
+        || report.evaluation_time_trusted
+        || report.issuer_path_verified
         || report.rust_revocation_provenance.issuer_chain_verified
         || report.rust_revocation_provenance.trusted_evaluation_time
         || report.rust_admissible_revocation != "Unavailable"
         || report.qualification != "Indeterminate"
         || report.combined_observation.is_empty()
         || !report.inputs_sha256.is_object()
-        || !report.crl.is_object() || !report.ocsp.is_object()
-    { return Err("untrusted or incompatible revocation report".into()); }
+        || !report.crl.is_object()
+        || !report.ocsp.is_object()
+    {
+        return Err("untrusted or incompatible revocation report".into());
+    }
     let _observed = (
         report.rust_revocation_provenance.response_signature_verified,
         report.rust_revocation_provenance.certificate_identity_verified,
         report.rust_revocation_provenance.scope_and_freshness_verified,
     );
     Ok(with_verified_revocation(
-        preliminary, Evidence::Unavailable,
+        preliminary,
+        Evidence::Unavailable,
         RevocationProvenance {
-            issuer_chain_verified: false, response_signature_verified: false,
-            certificate_identity_verified: false, scope_and_freshness_verified: false,
+            issuer_chain_verified: false,
+            response_signature_verified: false,
+            certificate_identity_verified: false,
+            scope_and_freshness_verified: false,
             trusted_evaluation_time: false,
         },
     ))
@@ -505,9 +528,12 @@ mod offline_report_tests {
     use super::*;
     fn preliminary() -> QualificationEvidence {
         QualificationEvidence {
-            cryptographic_integrity: Evidence::Confirmed, certificate_path: Evidence::Unavailable,
-            revocation: Evidence::Unavailable, trusted_time: Evidence::Unavailable,
-            eu_trusted_service: Evidence::Unavailable, qualified_certificate_and_qscd: Evidence::Unavailable,
+            cryptographic_integrity: Evidence::Confirmed,
+            certificate_path: Evidence::Unavailable,
+            revocation: Evidence::Unavailable,
+            trusted_time: Evidence::Unavailable,
+            eu_trusted_service: Evidence::Unavailable,
+            qualified_certificate_and_qscd: Evidence::Unavailable,
         }
     }
     fn report() -> String {
@@ -523,7 +549,8 @@ mod offline_report_tests {
                 "trusted_evaluation_time":false
             },
             "rust_admissible_revocation":"Unavailable","qualification":"Indeterminate"
-        }).to_string()
+        })
+        .to_string()
     }
     #[test]
     fn valid_report_cannot_promote_qes() {
