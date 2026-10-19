@@ -14,13 +14,16 @@ impl FileStamp {
     }
 }
 
+pub(crate) type DssResult = Result<(String, FileStamp), String>;
+pub(crate) type SharedDssResult = std::sync::Arc<std::sync::Mutex<Option<DssResult>>>;
+
 #[derive(Clone, Debug, Default)]
 pub(crate) struct State {
     pub(crate) pending: bool,
     pub(crate) checked_path: Option<String>,
     pub(crate) message: String,
     verified_stamp: Option<FileStamp>,
-    pub(crate) outcome: Option<std::sync::Arc<std::sync::Mutex<Option<Result<(String, FileStamp), String>>>>>,
+    pub(crate) outcome: Option<SharedDssResult>,
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -155,8 +158,7 @@ mod tests {
         let path = std::env::temp_dir().join(format!("pdfcraft-dss-stamp-{}-{unique}.pdf", std::process::id()));
         let filename = path.to_str().unwrap();
         std::fs::write(&path, b"original").unwrap();
-        let mut state = State::default();
-        state.verified_stamp = Some(super::FileStamp::read(filename).unwrap());
+        let state = State { verified_stamp: Some(super::FileStamp::read(filename).unwrap()), ..State::default() };
         assert!(state.checked_file_unchanged(Some(filename)));
         std::fs::write(&path, b"modified PDF bytes and length").unwrap();
         assert!(!state.checked_file_unchanged(Some(filename)));

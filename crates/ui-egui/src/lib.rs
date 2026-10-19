@@ -886,11 +886,15 @@ fn rgb_triple(v: &serde_json::Value) -> Option<[f64; 3]> {
 
 impl PdfCraftApp {
     pub fn new() -> Self {
-        let mut session = Session::new();
+        let session = Session::new();
         #[cfg(target_os = "windows")]
-        if let Ok(roots) = pdfcraft_engine::sign::windows::trusted_roots() {
-            session.set_trusted_certificates(roots);
-        }
+        let session = {
+            let mut session = session;
+            if let Ok(roots) = pdfcraft_engine::sign::windows::trusted_roots() {
+                session.set_trusted_certificates(roots);
+            }
+            session
+        };
         Self {
             session,
             user_trusted_certificates: Vec::new(),
@@ -2462,15 +2466,19 @@ impl PdfCraftApp {
                 }
             };
             self.user_trusted_certificates = certs.clone();
-            let mut combined = certs;
+            let combined = certs;
             #[cfg(target_os = "windows")]
-            if let Ok(roots) = pdfcraft_engine::sign::windows::trusted_roots() {
-                for root in roots {
-                    if !combined.iter().any(|c| c.raw == root.raw) {
-                        combined.push(root);
+            let combined = {
+                let mut combined = combined;
+                if let Ok(roots) = pdfcraft_engine::sign::windows::trusted_roots() {
+                    for root in roots {
+                        if !combined.iter().any(|c| c.raw == root.raw) {
+                            combined.push(root);
+                        }
                     }
                 }
-            }
+                combined
+            };
             self.apply_trusted_certificates(combined);
         }
     }
