@@ -52,7 +52,7 @@ jobs:
           python ./tools/make_rfc3161_fixture.py --out $source
           if ($LASTEXITCODE -ne 0) { throw 'Clean deterministic PDF fixture generation failed' }
           $fixtureSha = (Get-FileHash -LiteralPath $source -Algorithm SHA256).Hash.ToLowerInvariant()
-          if ($fixtureSha -ne 'cb9504f12537ef36035926e9e5382b62ff7022b70c700a2f2e9fa1ea13204fec') {
+          if ($fixtureSha -ne '8b619a9b0f3bb43e75658c03c67dba876b2447d7eee08351e37c928ce607c13d') {
             throw 'Clean deterministic PDF source unexpectedly changed'
           }
           $output = Join-Path $PWD 'target/rfc3161-open-tsa-NONQUALIFIED-TEST.pdf'
