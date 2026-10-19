@@ -1,0 +1,40 @@
+name: PAdES LT evidence (strict structural gate)
+
+on:
+  push:
+    branches:
+      - feature/pades-lt-evidence-gate-20261019
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  structural-evidence:
+    name: Strict PAdES DSS/CRL gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      CARGO_BUILD_JOBS: "2"
+    steps:
+      - name: Checkout exact committed source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Rust stable
+        uses: dtolnay/rust-toolchain@686976e191b89faba57d3206551f0f330d8cb249 # stable
+        with:
+          toolchain: stable
+          components: clippy, rustfmt
+      - name: Validate Rust formatting
+        run: cargo fmt --all -- --check
+      - name: Run strict evidence positive and negative regression
+        run: cargo test --locked -p pdfcraft-sign --test pdf dss_structural_gate_requires_cryptographically_authenticated_revocation -- --exact
+      - name: Run complete signature engine tests
+        run: cargo test --locked -p pdfcraft-sign
+      - name: Enforce Clippy
+        run: cargo clippy --locked -p pdfcraft-sign --all-targets -- -D warnings
+      - name: Qualification boundary
+        run: |
+          echo "PDFCRAFT_DSS_STRUCTURAL_GATE=PASS" >> "$GITHUB_STEP_SUMMARY"
+          echo "Real B-LT/B-LTA and qualified issuer/TSA qualification: NOT VALIDATED" >> "$GITHUB_STEP_SUMMARY"

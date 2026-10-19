@@ -498,6 +498,76 @@ fn cached_discovery_still_validates_current_timestamp_bytes_ranges_and_trust() {
 }
 
 #[test]
+fn dss_structural_gate_requires_cryptographically_authenticated_revocation() {
+    use pdfcraft_sign::dss::Evidence;
+    use pdfcraft_sign::dss_checked::embed_checked;
+
+    // Synthetic test-only CA identity, not a public trusted certificate.
+    let id = pkcs12::open(&data("lt-ca-test.p12"), "test").unwrap();
+    assert!(id.certificate.may_issue());
+    let at = Time { year: 2026, month: 10, day: 20, hour: 12, minute: 0, second: 0 };
+    assert!(id.certificate.valid_at(at));
+    let options = SignOptions { date: "D:20261020120000Z".into(), ..opts() };
+    let original = pdfcraft_sign::sign(&open(&fixture()), &id, &options).unwrap();
+    let algorithm = id.key.signature_algorithm(pdfcraft_sign::DigestAlg::Sha256);
+    let make_crl = |revoke: bool, future: bool, different_key: bool| {
+        let this = if future {
+            Time { year: 2026, month: 11, day: 1, hour: 0, minute: 0, second: 0 }
+        } else {
+            Time { year: 2026, month: 10, day: 19, hour: 16, minute: 0, second: 0 }
+        };
+        let next = Time { year: 2027, month: 10, day: 19, hour: 16, minute: 0, second: 0 };
+        let mut fields = vec![der::int(1), algorithm.clone(), id.certificate.subject.raw.clone(), this.encode(), next.encode()];
+        if revoke {
+            let revocation = Time { year: 2026, month: 10, day: 19, hour: 17, minute: 0, second: 0 };
+            fields.push(der::seq(&[&der::seq(&[&der::uint(&id.certificate.serial), &revocation.encode()])]));
+        }
+        let tbs = der::seq(&fields.iter().map(Vec::as_slice).collect::<Vec<_>>());
+        let sig = if different_key {
+            let other = pkcs12::open(&data("rsa-aes.p12"), "test").unwrap();
+            other.key.sign(pdfcraft_sign::DigestAlg::Sha256, &tbs).unwrap()
+        } else {
+            id.key.sign(pdfcraft_sign::DigestAlg::Sha256, &tbs).unwrap()
+        };
+        der::seq(&[&tbs, &algorithm, &der::bit_string(&sig)])
+    };
+
+    let valid = Evidence { certs: vec![id.certificate.raw.clone()], ocsps: vec![], crls: vec![make_crl(false, false, false)] };
+    let embedded = embed_checked(&original, &valid, &id.certificate, at).unwrap();
+    assert!(embedded.starts_with(&original), "DSS must be incremental");
+    let d = open(&embedded);
+    let catalog_object = d.get(d.root().unwrap());
+    let catalog = catalog_object.as_dict().unwrap();
+    assert!(catalog.contains(b"DSS"));
+    let infos = signatures(&d, &embedded, &TrustStore { certs: vec![id.certificate.clone()] });
+    assert_eq!(infos.iter().filter(|s| s.signed).count(), 1);
+    assert!(infos.iter().any(|s| s.signed && s.status == Status::Valid));
+
+    let cases = [
+        ("missing revocation", Evidence { certs: valid.certs.clone(), ..Evidence::default() }),
+        ("synthetic revocation", Evidence { certs: valid.certs.clone(), crls: vec![b"synthetic crl".to_vec()], ..Evidence::default() }),
+        ("revoked", Evidence { certs: valid.certs.clone(), crls: vec![make_crl(true, false, false)], ..Evidence::default() }),
+        ("future CRL", Evidence { certs: valid.certs.clone(), crls: vec![make_crl(false, true, false)], ..Evidence::default() }),
+        ("wrong signer key", Evidence { certs: valid.certs.clone(), crls: vec![make_crl(false, false, true)], ..Evidence::default() }),
+        ("extra invalid OCSP", Evidence { certs: valid.certs.clone(), ocsps: vec![b"synthetic ocsp".to_vec()], crls: valid.crls.clone() }),
+        (
+            "missing signer DER",
+            Evidence { certs: vec![pkcs12::open(&data("rsa-aes.p12"), "test").unwrap().certificate.raw], crls: valid.crls.clone(), ocsps: vec![] },
+        ),
+    ];
+    for (label, evidence) in cases {
+        assert!(embed_checked(&original, &evidence, &id.certificate, at).is_err(), "{label}");
+    }
+    let mut tampered = original.clone();
+    let position = tampered.windows(13).position(|b| b == b"Contract text").unwrap();
+    tampered[position] = b'X';
+    assert!(embed_checked(&tampered, &valid, &id.certificate, at).is_err(), "modified signature must be rejected");
+    assert!(embed_checked(&embedded, &valid, &id.certificate, at).is_err(), "previous DSS requires separate verification");
+    let other_issuer = pkcs12::open(&data("rsa-aes.p12"), "test").unwrap();
+    assert!(embed_checked(&original, &valid, &other_issuer.certificate, at).is_err(), "untrusted issuer substitution");
+}
+
+#[test]
 fn embedding_ltv_evidence_adds_a_dss_and_keeps_signatures_valid() {
     use pdfcraft_sign::dss::{self, Evidence};
     let id = pkcs12::open(&data("ec-p256.p12"), "test").unwrap();
@@ -531,7 +601,7 @@ fn embedding_ltv_evidence_adds_a_dss_and_keeps_signatures_valid() {
 }
 
 #[test]
-fn sign_then_ltv_then_timestamp_makes_a_b_lta_file() {
+fn sign_then_unverified_dss_then_test_timestamp_serializes_b_lta_structure_only() {
     use pdfcraft_sign::dss::{self, Evidence};
     let id = pkcs12::open(&data("ec-p256.p12"), "test").unwrap();
     let tsa = TestTsa {
