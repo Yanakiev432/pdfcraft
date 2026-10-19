@@ -29,7 +29,10 @@ foreach ($path in $Paths) {
   if (-not ($cert.EnhancedKeyUsageList | Where-Object { $_.ObjectId -eq '1.3.6.1.5.5.7.3.3' })) {
     throw "CODE_SIGNING_NO_GO: $($file.Name) lacks Code Signing EKU"
   }
-  # Smart App Control's documented certificate lane currently requires RSA.
+  # Conservative release policy for this SAC-enforced device: require RSA here.
+  # Microsoft's older English guidance says RSA-only, while newer localized
+  # versions mention ECC support. Actual SAC compatibility must still be tested.
+  # This is a project-specific gate, not a general claim that ECC is unsupported.
   if ($cert.PublicKey.Oid.Value -ne '1.2.840.113549.1.1.1') {
     throw "CODE_SIGNING_NO_GO: $($file.Name) has a non-RSA publisher key"
   }

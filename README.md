@@ -1,3 +1,6 @@
+> [!WARNING]
+> **Unofficial experimental fork maintained by `Yanakiev432`.** Not an official ArtCraft/PdfCraft release. The B-Trust QES development build is not code-signed; do not distribute it as a trusted Windows installer. Public signing and higher PAdES-B-T/LT/LTA acceptance remain blocked until external evidence and approval. Read the [Code signing policy](docs/CODE_SIGNING_POLICY_20261019.md) and [release gate](docs/WINDOWS_TRUSTED_RELEASE_CANDIDATE_20261019.md). This source tree still carries upstream branding; modified binaries must be rebranded before redistribution.
+
 <p align="center">
   <a href="https://getartcraft.com/">
     <picture>

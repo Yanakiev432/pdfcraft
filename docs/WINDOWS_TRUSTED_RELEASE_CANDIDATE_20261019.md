@@ -4,7 +4,7 @@
 
 The project's upstream `packaging/windows/package.ps1` supports WiX v5 MSI and portable ZIP and delegates signing to `sign.ps1`. When signing credentials are not set, `sign.ps1` **normally prints a warning and exits 0**, leaving unsigned artifacts. That is acceptable only for local *development*, never a claim of a trusted production release.
 
-This fork adds `packaging/windows/assert-trusted-release.ps1` and an explicit `-RequireTrustedRelease` switch to `package.ps1`. When switched on, the package process must reject an EXE, CLI or MSI without a valid Authenticode publisher signature, the Code Signing EKU, RSA publisher key and timestamp signer. It checks release files read-only: no self-signed certificate imports, Windows security policy edits or trust-store mutations.
+This fork adds `packaging/windows/assert-trusted-release.ps1` and an explicit `-RequireTrustedRelease` switch to `package.ps1`. When switched on, the package process must reject an EXE, CLI or MSI without a valid Authenticode publisher signature, the Code Signing EKU, an intentionally conservative RSA publisher-key policy, and a timestamp signer. Microsoft documentation from different update cohorts disagrees about whether ECC code-signing certificates are accepted by Smart App Control; this local release policy deliberately insists on RSA until actual policy-enforced verification proves otherwise. It checks release files read-only: no self-signed certificate imports, Windows security policy edits or trust-store mutations.
 
 ```powershell
 # Run only in a legitimate authorized Windows build environment with
