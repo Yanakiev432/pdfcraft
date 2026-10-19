@@ -40,6 +40,44 @@ fn valid_in_window(this: Time, next: Option<Time>, at: Time) -> bool {
     at >= this && next.is_none_or(|n| at <= n)
 }
 
+// A delta CRL cannot prove non-revocation without its matching base CRL.
+// Issuing distribution points may restrict a CRL to only part of a CA's
+// issued certificates. Until these scopes are implemented, fail closed.
+fn check_crl_extensions(raw: Tlv<'_>, entry: bool) -> Result<(), SignError> {
+    let extensions = raw.expect(tag::SEQUENCE, "CRL extensions")?.children()?;
+    if extensions.len() > 64 {
+        return Err(bad("too many CRL extensions"));
+    }
+    let mut seen = std::collections::HashSet::new();
+    for ext in extensions {
+        let fields = ext.expect(tag::SEQUENCE, "CRL extension")?.children()?;
+        if !(fields.len() == 2 || fields.len() == 3) {
+            return Err(bad("malformed CRL extension"));
+        }
+        let oid = fields[0].expect(tag::OID, "CRL extension OID")?.oid()?;
+        if !seen.insert(oid.clone()) {
+            return Err(bad("duplicate CRL extension"));
+        }
+        let (critical, value) = if fields.len() == 3 {
+            let flag = fields[1].expect(tag::BOOLEAN, "CRL critical flag")?;
+            if flag.value != [0xff] {
+                return Err(bad("non-canonical CRL critical flag"));
+            }
+            (true, fields[2])
+        } else {
+            (false, fields[1])
+        };
+        value.expect(tag::OCTET_STRING, "CRL extension value")?;
+        if oid == "2.5.29.27" || oid == "2.5.29.28" || oid == "2.5.29.29" {
+            return Err(bad("delta, scoped or indirect CRL requires separate validation"));
+        }
+        if critical {
+            return Err(bad(if entry { "unsupported critical CRL entry extension" } else { "unsupported critical CRL extension" }));
+        }
+    }
+    Ok(())
+}
+
 /// Verify `signature` over the raw `signed` bytes with `key`, where the signature's algorithm
 /// identifier names the digest.
 fn verify_signature(signed: &[u8], alg_raw: &[u8], signature: &[u8], key: &PublicKey) -> bool {
@@ -74,7 +112,10 @@ impl CertificateList {
         if f.peek().is_some_and(|t| t.tag == tag::INTEGER) {
             f.next(); // version
         }
-        let _alg = f.next().ok_or_else(|| bad("tbsCertList"))?;
+        let tbs_alg = f.next().ok_or_else(|| bad("tbsCertList"))?;
+        if tbs_alg.raw != alg.raw {
+            return Err(bad("CRL signature algorithm differs between TBS and outer envelope"));
+        }
         let issuer = f.next().ok_or_else(|| bad("tbsCertList"))?.raw.to_vec();
         let this_update = f.next().ok_or_else(|| bad("tbsCertList"))?.time()?;
         let mut next_update = None;
@@ -87,8 +128,20 @@ impl CertificateList {
                 let e = entry.children()?;
                 let serial = e.first().ok_or_else(|| bad("revoked entry"))?.uint_bytes().to_vec();
                 let at = e.get(1).ok_or_else(|| bad("revoked entry"))?.time()?;
+                if e.len() > 3 {
+                    return Err(bad("unexpected revoked entry fields"));
+                }
+                if let Some(extensions) = e.get(2) {
+                    check_crl_extensions(*extensions, true)?;
+                }
                 revoked.push((serial, at));
             }
+        }
+        if let Some(extension) = f.next() {
+            if extension.tag != tag::ctx(0) || f.next().is_some() {
+                return Err(bad("unexpected CRL TBS fields"));
+            }
+            check_crl_extensions(extension.inner()?, false)?;
         }
         Ok(CertificateList {
             tbs: tbs.raw.to_vec(),

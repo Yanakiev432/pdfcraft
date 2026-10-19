@@ -257,6 +257,42 @@ fn crl(issuer: &pkcs12::DigitalId, revoked_serial: Option<(&[u8], Time)>, this: 
     der::seq(&[&tbs, &alg, &der::bit_string(&sig)])
 }
 
+/// A correctly signed synthetic CRL carrying one v2 extension.
+fn crl_with_extension(issuer: &pkcs12::DigitalId, oid: &str, critical: bool) -> Vec<u8> {
+    let alg = issuer.key.signature_algorithm(DigestAlg::Sha256);
+    let mut parts = vec![der::oid(oid)];
+    if critical {
+        parts.push(der::tlv(tag::BOOLEAN, &[0xff]));
+    }
+    parts.push(der::octets(&der::int(1)));
+    let extension = der::seq(&parts.iter().map(Vec::as_slice).collect::<Vec<_>>());
+    let extensions = der::seq(&[&extension]);
+    let this = mid_june();
+    let next = Time { year: 2026, month: 7, day: 15, hour: 12, minute: 0, second: 0 };
+    let tbs = der::seq(&[&der::int(1), &alg, &issuer.certificate.subject.raw, &this.encode(), &next.encode(), &der::explicit(0, &extensions)]);
+    let signature = issuer.key.sign(DigestAlg::Sha256, &tbs).unwrap();
+    der::seq(&[&tbs, &alg, &der::bit_string(&signature)])
+}
+
+#[test]
+fn crl_scope_and_critical_extensions_fail_closed() {
+    let id = pkcs12::open(&data("ec-p256.p12"), "test").unwrap();
+    let issuer = &id.certificate;
+    for (oid, critical) in [
+        ("2.5.29.27", false), // deltaCRLIndicator: base CRL is not present
+        ("2.5.29.28", true),  // issuingDistributionPoint: scoped/indirect CRL
+        ("2.5.29.29", false), // certificateIssuer: indirect CRL entry semantics
+        ("1.2.3.4.5", true),  // unknown critical extension
+    ] {
+        let der = crl_with_extension(&id, oid, critical);
+        assert!(CertificateList::parse(&der).is_err(), "unsafe extension {oid} accepted");
+    }
+    // Unknown *noncritical* extension does not change ordinary CRL semantics.
+    let allowed = crl_with_extension(&id, "1.2.3.4.5", false);
+    let parsed = CertificateList::parse(&allowed).unwrap();
+    assert_eq!(parsed.check(issuer, issuer, mid_june()), RevocationStatus::Good);
+}
+
 /// A self-issued OCSP response from `issuer` answering for its own serial.
 fn ocsp(issuer: &pkcs12::DigitalId, status: RevocationStatus, this: Time, next: Time) -> Vec<u8> {
     let cert_id = der::seq(&[
