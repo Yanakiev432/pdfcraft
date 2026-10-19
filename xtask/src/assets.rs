@@ -37,6 +37,7 @@ pub const ALLOWED_LICENCES: &[&str] = &[
 
 /// The closed list of Adobe-authored, non-visual technical data (AGENTS.md §1.1): (crate, path).
 /// The upstream non-open brand license is prohibited in modified forks (AGENTS.md §1.2).
+#[cfg(test)]
 pub const BRAND_LICENCE: &str = "LicenseRef-Storyteller-Trademark";
 
 pub const ADOBE_DATA_ALLOWED: &[(&str, &str)] = &[("hayro-cmap", "assets/cmaps.brotli"), ("hayro-interpret", "src/font/generated/metrics.rs")];
