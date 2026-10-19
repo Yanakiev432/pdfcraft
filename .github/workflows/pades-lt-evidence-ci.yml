@@ -5,6 +5,7 @@ on:
     branches:
       - feature/pades-lt-evidence-gate-20261019
       - feature/pades-lt-ocsp-crl-20261019
+      - feature/pades-lt-crl-extension-guard-20261019
   workflow_dispatch:
 
 permissions:
@@ -31,6 +32,8 @@ jobs:
         run: cargo fmt --all -- --check
       - name: Run strict evidence positive and negative regression
         run: cargo test --locked -p pdfcraft-sign --test pdf dss_structural_gate_requires_cryptographically_authenticated_revocation -- --exact
+      - name: Reject scoped, delta, indirect and unknown-critical CRLs
+        run: cargo test --locked -p pdfcraft-sign --test crypto crl_scope_and_critical_extensions_fail_closed -- --exact
       - name: Run complete signature engine tests
         run: cargo test --locked -p pdfcraft-sign
       - name: Compile local-only evidence preflight helper
