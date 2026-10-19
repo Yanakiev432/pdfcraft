@@ -10,6 +10,7 @@
 pub mod cms;
 pub mod der;
 pub mod dss;
+pub mod dss_checked;
 mod ec512;
 pub mod graphic;
 #[cfg(target_os = "macos")]

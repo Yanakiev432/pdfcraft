@@ -11,6 +11,7 @@ The password of every `.p12` is `test`.
 | `ec-legacy.p12` | `ec-p256.p12` re-exported with `-legacy` (3DES, SHA-1 MAC): the format macOS `security import` accepts |
 | `ec-p384.p12` | P-384 self-signed "Test Signer P384"; AES-128-CBC, SHA-1 MAC |
 | `chain.p12` | RSA 2048 "Ada Lovelace" issued by a P-256 test root, chain included |
+| `lt-ca-test.p12` | **Publicly disclosed throw-away private test key**: RSA 2048 self-signed test CA with CA:TRUE, keyCertSign/cRLSign/digitalSignature; for structural DSS/CRL tests only. Never use as a real trust anchor or signer. Password `test`. |
 | `rsa.crt.pem`, `ca.crt.pem` | the RSA certificate and the test root alone |
 
 Regenerate with:
