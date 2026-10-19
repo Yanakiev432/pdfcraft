@@ -76,3 +76,59 @@ jobs:
           if-no-files-found: error
           retention-days: 7
           compression-level: 6
+
+  independent-clean-pdf-verification:
+    if: github.event_name == 'push' && contains(github.event.head_commit.message, '[tsa-live]')
+    needs: rust-bridge-check
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Download signed synthetic artifact with digest verification
+        uses: actions/download-artifact@cc203385981b70ca67e1cc392babf9cc229d5806 # v4.1.9
+        with:
+          name: pdfcraft-rfc3161-open-tsa-NONQUALIFIED-TEST
+          path: target
+      - name: Install independent inspection tools
+        shell: bash
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq poppler-utils openssl
+          python3 -m venv .venv
+          .venv/bin/python -m pip install --disable-pip-version-check 'pypdf==5.9.0' 'asn1crypto==1.5.1'
+      - name: Validate clean PAdES PDF with Poppler and OpenSSL
+        shell: bash
+        run: |
+          set -euo pipefail
+          pdfinfo target/rfc3161-open-tsa-NONQUALIFIED-TEST.pdf
+          .venv/bin/python tools/verify_rfc3161_nonqualified.py target/rfc3161-open-tsa-NONQUALIFIED-TEST.pdf --json target/rfc3161-independent-check.json
+          sha256sum target/rfc3161-clean-unsigned-TEST.pdf
+          pdftoppm -f 1 -l 1 -r 72 -png -singlefile target/rfc3161-open-tsa-NONQUALIFIED-TEST.pdf target/clean-tsa-render
+          .venv/bin/python - <<'PY'
+          import json
+          r=json.load(open("target/rfc3161-independent-check.json",encoding="utf-8"))
+          assert r["pdf_signatures"]==1 and r["poppler_pdfsig_cryptographic_signature"]=="PASS"
+          assert r["openssl_timestamp_cms_signature"]=="PASS" and r["rfc3161_imprint_matches_cms_signature_sha256"]=="PASS"
+          assert r["release_ready"] is False and r["eidas_qualified_tsa"] is False
+          print("INDEPENDENT_NONQUALIFIED_PADES_B_T_CRYPTO_PASS")
+          PY
+      - name: Reject signed-byte tampering and unsigned trailing bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          .venv/bin/python - <<'PY'
+          from pathlib import Path
+          raw=Path("target/rfc3161-open-tsa-NONQUALIFIED-TEST.pdf").read_bytes()
+          Path("target/rfc3161-tampered.pdf").write_bytes(raw.replace(b"PdfCraft", b"PdfCraFt", 1))
+          Path("target/rfc3161-unsigned-trailer.pdf").write_bytes(raw+b"\n")
+          PY
+          if .venv/bin/python tools/verify_rfc3161_nonqualified.py target/rfc3161-tampered.pdf; then exit 1; fi
+          if .venv/bin/python tools/verify_rfc3161_nonqualified.py target/rfc3161-unsigned-trailer.pdf; then exit 1; fi
+          echo 'NEGATIVE_TAMPER_TESTS=PASS'
+      - name: Archive independent findings (test only)
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: pdfcraft-rfc3161-INDEPENDENT-NONQUALIFIED-REPORT
+          path: target/rfc3161-independent-check.json
+          if-no-files-found: error
+          retention-days: 7
