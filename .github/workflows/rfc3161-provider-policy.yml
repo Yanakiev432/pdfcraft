@@ -58,3 +58,12 @@ jobs:
           if (-not (Test-Path -LiteralPath $output)) { throw 'Signed PDF output missing' }
           Write-Host ('OPEN_TSA_PADES_B_T_NONQUALIFIED_E2E_PASS file_sha256=' + (Get-FileHash -LiteralPath $output -Algorithm SHA256).Hash.ToLowerInvariant())
           Write-Host 'BTRUST_QES=NOT_TESTED EU_DSS=NOT_TESTED QUALIFIED_TSA=NO'
+      - name: Archive NONQUALIFIED test PDF for independent offline review
+        if: github.event_name == 'push' && contains(github.event.head_commit.message, '[tsa-live]')
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: pdfcraft-rfc3161-open-tsa-NONQUALIFIED-TEST
+          path: target/rfc3161-open-tsa-NONQUALIFIED-TEST.pdf
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 6
