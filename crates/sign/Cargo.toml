@@ -15,6 +15,8 @@ pdfcraft-cos = { workspace = true }
 pdfcraft-annot = { workspace = true }
 pdfcraft-fonts = { workspace = true }
 thiserror.workspace = true
+# Host-neutral PDF / WordCraft / GridCraft signature-format contracts.
+craft-signing-core = { git = "https://github.com/Yanakiev432/craft-signing-core.git", rev = "a33e111" }
 serde.workspace = true
 serde_json.workspace = true
 base64 = "0.22"
@@ -48,7 +50,6 @@ getrandom = "0.4"
 [target.'cfg(target_os = "windows")'.dependencies]
 # Safe Windows certificate store and CNG signing wrappers (MIT OR Apache-2.0).
 rustls-cng = { version = "0.7.1", default-features = false }
-craft-signing-core = { git = "https://github.com/Yanakiev432/craft-signing-core.git", rev = "8839136" }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 # Signing with Keychain identities (MIT OR Apache-2.0).

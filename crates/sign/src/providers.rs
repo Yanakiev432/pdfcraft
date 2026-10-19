@@ -2,6 +2,10 @@
 //!
 //! This module describes integration points without accessing certificates,
 //! private keys, PINs, smart cards, or remote signing services.
+//!
+//! The shared document-family contract is maintained in craft-signing-core.
+//! Office OPC/XMLDSig and PDF PAdES are distinct serializers, not interchangeable.
+pub use craft_signing_core::format_contract::{DocumentFamily, FormatBinding, PadesBaseline, SignatureStandard};
 
 /// A source of signing identities. This is not an assertion of availability.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
@@ -146,6 +150,15 @@ mod tests {
             }
             Ok(request.digest.digest(&[request.message]))
         }
+    }
+
+    #[test]
+    fn shared_format_contract_rejects_using_pades_for_office_documents() {
+        assert!(FormatBinding::new(DocumentFamily::Pdf, SignatureStandard::Pades).is_ok());
+        assert!(FormatBinding::new(DocumentFamily::WordOoxml, SignatureStandard::Pades).is_err());
+        assert!(FormatBinding::new(DocumentFamily::SpreadsheetOoxml, SignatureStandard::Pades).is_err());
+        assert!(FormatBinding::new(DocumentFamily::WordOoxml, SignatureStandard::OoxmlOpcXmldsig).is_ok());
+        assert_eq!(PadesBaseline::from_independent_dss_name("PAdES-BASELINE-LTA"), Some(PadesBaseline::Lta));
     }
 
     #[test]
