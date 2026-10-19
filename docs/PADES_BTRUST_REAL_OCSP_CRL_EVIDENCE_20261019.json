@@ -1,0 +1,69 @@
+{
+  "schema": "pdfcraft.local-btrust-ocsp-crl-acceptance.v1",
+  "date": "2026-10-19",
+  "source": {
+    "kind": "privately stored B-Trust signed PDF; not committed",
+    "sha256": "3016d0e0cbd7f72fa7dbc4c29685f714176d978f2c300f022c3d617d7abc9c9a",
+    "unchanged": true
+  },
+  "inputs": {
+    "issuer": "B-Trust Operational Qualified CA (locally provided; QTSP historical qualification not established)",
+    "ocsp": {
+      "type": "OCSPResponse RFC6960",
+      "sha256": "cef34027d64c1a35b82622e1ee64b919cf2f25dd038373cf2f64fceb8d4b554a",
+      "bytes": 2092,
+      "producedAt": "2026-10-17T20:42:54Z",
+      "status": "Good relative to issuer",
+      "delegated_responder_eku": "OCSP Signing",
+      "issuer_chain_qualified": false
+    },
+    "crl": {
+      "type": "X.509 CRL",
+      "sha256": "ba33ba841b1601da950708965a6ebb98c4d565919db1e11c6e500f373decef3a",
+      "bytes": 1777305,
+      "local_signature_verified_against_issuer": true
+    }
+  },
+  "evaluation": {
+    "time": "2026-10-17T20:45:00Z",
+    "qualified_time": false,
+    "verification": "signed issuer/responder, matching CertID/serial, not revoked, within both response validity intervals"
+  },
+  "implementation": {
+    "branch": "feature/pades-lt-ocsp-crl-20261019",
+    "changes": [
+      "Correct OCSP responseStatus ENUMERATED (RFC6960), not INTEGER",
+      "Unwrap embedded responder X.509 certificate from EXPLICIT SEQUENCE OF correctly",
+      "Add optional explicit OCSP evidence to local-only DSS CLI",
+      "Real OCSP and CRL must BOTH verify before embedding"
+    ],
+    "method": "pdfcraft_sign::dss_checked::embed_checked"
+  },
+  "output": {
+    "location": "local Lenovo only; outside Git",
+    "bytes": 1809582,
+    "sha256": "ed054bc9a8eadafb373f948ed9a5fd9d7cbf65b30effcb6d63fc7ab3dbf2fd1c",
+    "original_incremental_bytes_preserved": true
+  },
+  "negative_tests": {
+    "corrupt_real_ocsp_rejected": true,
+    "expired_evidence_time_rejected": true,
+    "output_absent_after_rejection": true
+  },
+  "independent_eu_dss": {
+    "product": "EU DSS 6.5.1 local loopback service",
+    "observed_profile": "PAdES-BASELINE-B",
+    "qes": true,
+    "minimum_B": "PASS",
+    "minimum_LT": "NO_GO",
+    "hash_bound_to_file": true
+  },
+  "qualification": "NO_GO",
+  "limits": [
+    "No TSA qualified time, historical EU TSL issuer chain or full evidence archival proof",
+    "The original B-Trust PDF and DER OCSP/CRL bytes were never added to source control",
+    "No new USB token signing operation or PIN",
+    "Standalone one-field-signature gate only; does not support prior DSS or multisignature"
+  ],
+  "security_notes": "Tested only against saved original and copies; no network transmission of personal PDF, no Windows policy changes."
+}

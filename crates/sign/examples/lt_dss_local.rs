@@ -1,6 +1,6 @@
 //! Opt-in local-only structurally authenticated DSS append, NOT PAdES-B-LT QES.
 //! Does not access private keys or call remote providers; never overwrites input.
-//! Usage: lt_dss_local signed.pdf signer.pem issuer.pem evidence.crl new.pdf YYYYMMDDHHMMSS
+//! Usage: lt_dss_local signed.pdf signer.pem issuer.pem evidence.crl new.pdf YYYYMMDDHHMMSS [response.ocsp]
 
 use std::fs::{self, OpenOptions};
 use std::io::Write;
@@ -26,8 +26,8 @@ fn parse_utc(value: &str) -> Result<Time, String> {
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let a: Vec<String> = std::env::args().collect();
-    if a.len() != 7 {
-        return Err("usage: lt_dss_local signed.pdf signer.pem issuer.pem evidence.crl new.pdf YYYYMMDDHHMMSS".into());
+    if a.len() != 7 && a.len() != 8 {
+        return Err("usage: lt_dss_local signed.pdf signer.pem issuer.pem evidence.crl new.pdf YYYYMMDDHHMMSS [response.ocsp]".into());
     }
     let input = Path::new(&a[1]);
     let output = Path::new(&a[5]);
@@ -37,9 +37,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let signer = load_certificates(&fs::read(&a[2])?)?.into_iter().next().ok_or("missing signer certificate")?;
     let issuer = load_certificates(&fs::read(&a[3])?)?.into_iter().next().ok_or("missing issuer certificate")?;
     let signed_bytes = fs::read(input)?;
+    if a.len() == 8 {
+        let ocsp = fs::read(&a[7])?;
+        pdfcraft_sign::revocation::OcspResponse::parse(&ocsp).map_err(|err| format!("local OCSP DER parse rejection: {err}"))?;
+    }
     let result = embed_checked(
         &signed_bytes,
-        &Evidence { certs: vec![signer.raw, issuer.raw.clone()], ocsps: vec![], crls: vec![fs::read(&a[4])?] },
+        &Evidence {
+            certs: vec![signer.raw, issuer.raw.clone()],
+            ocsps: if a.len() == 8 { vec![fs::read(&a[7])?] } else { vec![] },
+            crls: vec![fs::read(&a[4])?],
+        },
         &issuer,
         parse_utc(&a[6])?,
     )?;
