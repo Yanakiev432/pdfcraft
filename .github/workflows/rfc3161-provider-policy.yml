@@ -40,3 +40,21 @@ jobs:
         run: cargo fmt --all -- --check
       - name: Compile on-demand PowerShell RFC3161 signing bridge (no live TSA)
         run: cargo check --locked -p pdfcraft-sign --example rfc3161_external_pades_bt
+      - name: One-shot LIVE Open TSA integration on public test PDF only
+        if: github.event_name == 'push' && contains(github.event.head_commit.message, '[tsa-live]')
+        shell: pwsh
+        env:
+          PDFCRAFT_TEST_PKCS12_PASSWORD: test
+        run: |
+          $ErrorActionPreference='Stop'
+          $source = Join-Path $PWD 'crates/sign/tests/data/openssl-signed.pdf'
+          $output = Join-Path $PWD 'target/rfc3161-open-tsa-NONQUALIFIED-TEST.pdf'
+          $testKey = Join-Path $PWD 'crates/sign/tests/data/rsa-aes.p12'
+          $adapter = Join-Path $PWD 'tools/rfc3161_provider_probe.ps1'
+          $pwshExe = (Get-Process -Id $PID).Path
+          $pdfDate = 'D:' + [DateTime]::UtcNow.ToString('yyyyMMddHHmmss') + 'Z'
+          cargo run --locked -p pdfcraft-sign --example rfc3161_external_pades_bt -- $source $output $testKey $pwshExe $adapter open-tsa $pdfDate
+          if ($LASTEXITCODE -ne 0) { throw 'Nonqualified Open TSA PAdES-B-T end-to-end test failed' }
+          if (-not (Test-Path -LiteralPath $output)) { throw 'Signed PDF output missing' }
+          Write-Host ('OPEN_TSA_PADES_B_T_NONQUALIFIED_E2E_PASS file_sha256=' + (Get-FileHash -LiteralPath $output -Algorithm SHA256).Hash.ToLowerInvariant())
+          Write-Host 'BTRUST_QES=NOT_TESTED EU_DSS=NOT_TESTED QUALIFIED_TSA=NO'

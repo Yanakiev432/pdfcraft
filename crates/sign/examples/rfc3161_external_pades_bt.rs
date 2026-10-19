@@ -9,7 +9,7 @@ use std::process::Command;
 use std::sync::Arc;
 
 use pdfcraft_cos::Document;
-use pdfcraft_sign::{SignError, SignOptions, TimestampAuthority, pkcs12, sign_with_timestamp};
+use pdfcraft_sign::{SignError, SignOptions, Status, TimestampAuthority, TrustStore, pkcs12, sign_with_timestamp, signatures};
 
 struct TempExchange {
     req: PathBuf,
@@ -119,8 +119,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let original = fs::read(source)?;
     let document = Document::open(Arc::new(original))?;
     let tsa = LocalPowerShellTsa { powershell, script, provider: provider.into(), confirm_personal_use: confirm };
-    let opts = SignOptions { date: args[7].clone(), page: 0, ..SignOptions::default() };
+    let opts = SignOptions { date: args[7].clone(), page: 0, rect: Some([20.0, 100.0, 200.0, 150.0]), ..SignOptions::default() };
     let signed = sign_with_timestamp(&document, &digital_id, &opts, &tsa)?;
+    let signed_document = Document::open(Arc::new(signed.clone()))?;
+    let found = signatures(&signed_document, &signed, &TrustStore::default());
+    if !found.iter().any(|s| s.signed && !s.doc_timestamp && s.timestamp && s.signed_len == signed.len() && s.status != Status::Invalid) {
+        return Err("the resulting PDF has no intact signed signature timestamp".into());
+    }
     // A fully validated timestamp response does NOT make an otherwise untrusted
     // test certificate qualified. Never claim independent EU DSS or QES here.
     let mut output = OpenOptions::new().write(true).create_new(true).open(dest)?;
