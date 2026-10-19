@@ -32,6 +32,8 @@ jobs:
         run: cargo test --locked -p pdfcraft-sign --test pdf dss_structural_gate_requires_cryptographically_authenticated_revocation -- --exact
       - name: Run complete signature engine tests
         run: cargo test --locked -p pdfcraft-sign
+      - name: Compile local-only evidence preflight helper
+        run: cargo check --locked -p pdfcraft-sign --example lt_dss_local
       - name: Enforce Clippy
         run: cargo clippy --locked -p pdfcraft-sign --all-targets -- -D warnings
       - name: Qualification boundary

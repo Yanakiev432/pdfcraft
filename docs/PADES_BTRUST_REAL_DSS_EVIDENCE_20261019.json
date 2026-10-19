@@ -1,0 +1,47 @@
+{
+  "schema": "pdfcraft.local-dss-real-crl-acceptance.v1",
+  "date": "2026-10-19",
+  "source_kind": "private locally stored B-Trust signed test PDF; source bytes remain outside Git",
+  "branch": "feature/pades-lt-evidence-gate-20261019",
+  "method": "pdfcraft_sign::dss_checked::embed_checked via examples/lt_dss_local.rs",
+  "input": {
+    "source_sha256": "3016d0e0cbd7f72fa7dbc4c29685f714176d978f2c300f022c3d617d7abc9c9a",
+    "original_unchanged": true
+  },
+  "revocation": {
+    "type": "CRL",
+    "issuer": "B-Trust Operational Qualified CA",
+    "source": "http://crl.b-trust.org/repository/B-TrustOperationalQCA.crl",
+    "retrieved_on": "2026-10-17",
+    "bytes": 1777305,
+    "sha256": "ba33ba841b1601da950708965a6ebb98c4d565919db1e11c6e500f373decef3a",
+    "evaluation_time": "2026-10-17T20:00:00Z",
+    "evaluation_time_is_qualified": false,
+    "crl_signature_valid_against_supplied_issuer": true,
+    "not_revoked_at_evaluation": true,
+    "issuer_chain_independently_qualified": false
+  },
+  "output": {
+    "size_bytes": 1807335,
+    "sha256": "87b93b40c148c91ad50355b8c549030ab70bd71eb99eaba9de07939a19af048f",
+    "stored_only_locally": true,
+    "incremental_original_revision_preserved": true,
+    "poppler_visual_render_parity": "PASS"
+  },
+  "independent_eu_dss": {
+    "observed_profile": "PAdES-BASELINE-B",
+    "observed_qes": true,
+    "total_passed_at_minimum_B": true,
+    "min_B_gate": "PASS",
+    "min_LT_gate": "NO_GO",
+    "qualified_timestamp_proven": false,
+    "trust_history_and_archival_revocation_proven": false
+  },
+  "limits": [
+    "No new B-Trust USB PIN or signing operation was performed",
+    "No real signed personal PDF or DER revocation bytes uploaded to GitHub",
+    "Caller-supplied issuer is not an EU historical EUTSL validation anchor",
+    "A CRL alone does not produce a qualified PAdES B-T/B-LT/B-LTA signature"
+  ],
+  "production_qualification": "NO_GO"
+}
