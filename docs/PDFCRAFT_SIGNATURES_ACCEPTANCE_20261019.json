@@ -1,0 +1,84 @@
+{
+  "schema": "pdfcraft.signatures.acceptance.v1",
+  "date_local": "2026-10-19",
+  "project": "PdfCraft universal signatures / local EU DSS",
+  "repository": {
+    "path": "C:\\Users\\User\\Documents\\GitHub\\pdfcraft-signatures",
+    "branch": "feature/universal-signature-providers",
+    "verified_base_head": "2dc93b7",
+    "remote": "https://github.com/storytold/pdfcraft.git",
+    "pushed": false
+  },
+  "checks": {
+    "gui_linux": {
+      "command": "cargo check -p pdfcraft-ui-egui --offline",
+      "environment": "WSL Ubuntu 24.04 isolated target",
+      "result": "PASS",
+      "exit_code": 0
+    },
+    "gui_full_tests": {
+      "command": "cargo test -p pdfcraft-ui-egui --lib --offline -- --test-threads=4",
+      "passed": 445,
+      "failed": 0,
+      "ignored": 1,
+      "exit_code": 0
+    },
+    "sign_full_tests": {
+      "command": "cargo test -p pdfcraft-sign --offline -- --test-threads=4",
+      "passed": 149,
+      "failed": 0,
+      "ignored": 5,
+      "exit_code": 0
+    },
+    "local_dss": {
+      "engine": "EU DSS 6.5.1",
+      "transport": "http://127.0.0.1:8080",
+      "file": "existing signed B-Trust sample PDF",
+      "independent_dss_signature_level": "QESig",
+      "independent_dss_indication": "TOTAL_PASSED",
+      "independent_dss_qes_pass": true,
+      "validated_by": "tools/eidas_dss_local_verify.py",
+      "powershell_runner": "tools/verify-qes-local.ps1",
+      "powershell_runner_exit_code": 0,
+      "signed_again": false
+    },
+    "checksums_and_formatting": {
+      "cargo_fmt": "PASS",
+      "git_diff_check": "PASS"
+    }
+  },
+  "windows": {
+    "native_gui_build": "BLOCKED",
+    "application_control_error": 4551,
+    "code_integrity_event_id": 3077,
+    "application_control_policy": "VerifiedAndReputableDesktop",
+    "policy_id": "27555.1000.240208",
+    "valid_code_signing_eku_private_key_certificates_found": 0,
+    "installed_exe": "C:\\Program Files\\PdfCraft\\pdfcraft.exe",
+    "installed_exe_version": "0.8.0",
+    "installed_exe_signed_status": "NotSigned",
+    "installed_exe_replaced": false,
+    "security_policy_modified": false
+  },
+  "accepted_scope": [
+    "local B-Trust smartcard signing reported PASS in archived hardware acceptance",
+    "independent EU DSS verification of an already signed PDF",
+    "opt-in GUI integration compiles on Linux",
+    "UI stale-result guard tested",
+    "PowerShell read-only fallback tested on Windows"
+  ],
+  "not_accepted_scope": [
+    "native Windows GUI build and launch of modified code",
+    "Windows installer build/sign/deployment",
+    "qualified long-term PAdES-LT/LTA issuance",
+    "provider-wide QA across other tokens/cloud",
+    "multi-signature QES acceptance"
+  ],
+  "required_for_windows_release": [
+    "authorized build environment permitted to execute Rust build scripts",
+    "trusted publisher/code signing arrangement plus deterministic provenance",
+    "signed artifact and dependency signature verification",
+    "staged Windows GUI and MSI runtime acceptance",
+    "rollback rehearsal before modifying Program Files"
+  ]
+}
