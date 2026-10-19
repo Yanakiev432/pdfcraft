@@ -24,6 +24,7 @@ egui_extras = { workspace = true }
 eframe = { workspace = true, features = ["default_fonts", "wgpu", "accesskit", "persistence", "links"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
+sha2 = "0.11"
 log = { workspace = true }
 # Hands rendered rasters to egui as its pixels, without copying; already in the tree through egui and wgpu.
 bytemuck = { version = "1", features = ["extern_crate_alloc"] }
@@ -82,4 +83,5 @@ skrifa = "0.44"
 
 [build-dependencies]
 serde_json = { workspace = true }
+sha2 = "0.11"
 toml = "1"

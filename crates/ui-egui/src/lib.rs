@@ -78,6 +78,7 @@ mod autoscroll;
 mod bidi;
 pub mod bulk_fields;
 mod dialogs;
+mod dss_local;
 mod edit_text_ui;
 pub use edit_text_ui::CropMode;
 mod editing;
@@ -651,6 +652,7 @@ pub struct PdfCraftApp {
     pub digital_ids: Vec<DigitalIdEntry>,
     /// Signatures panel: expanded entries (field names).
     pub sig_expanded: Vec<String>,
+    pub(crate) dss_local: dss_local::State,
     /// Accessibility Checker: options, the last check, and rules skipped by hand.
     pub a11y_options: a11y_ui::A11yOptions,
     /// Scan & OCR: the Recognize Text choices, the running job, and (tests) run it inline.
@@ -987,6 +989,7 @@ impl PdfCraftApp {
             sign_draft: None,
             digital_ids: Vec::new(),
             sig_expanded: Vec::new(),
+            dss_local: Default::default(),
             a11y_options: a11y_ui::A11yOptions::default(),
             ocr_draft: ocr_ui::OcrDraft::default(),
             ocr_run: None,

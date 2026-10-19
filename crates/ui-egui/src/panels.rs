@@ -505,6 +505,7 @@ pub fn right_panel(app: &mut PdfCraftApp, ui: &mut egui::Ui) {
     let mut field_properties = None;
     let mut panel_command: Option<&'static str> = None;
     let mut sig_action: Option<crate::sign_ui::PanelAction> = None;
+    let mut dss_requested = false;
     let mut a11y_action: Option<crate::a11y_ui::PanelAction> = None;
     let mut compare_action: Option<crate::compare_ui::PanelAction> = None;
     let mut bm_rename = app.bookmark_rename.clone();
@@ -696,6 +697,17 @@ pub fn right_panel(app: &mut PdfCraftApp, ui: &mut egui::Ui) {
                     }
                     RightPanel::Signatures => {
                         sig_action = crate::sign_ui::panel(ui, &t, &doc.signatures, sig_expanded);
+                        ui.separator();
+                        if ui.add_enabled(!app.dss_local.pending, egui::Button::new("Check QES with local EU DSS")).clicked() {
+                            dss_requested = true;
+                        }
+                        if app.dss_local.checked_path.as_deref() == doc.path.as_deref() && !app.dss_local.message.is_empty() {
+                            if doc.dirty {
+                                ui.label("Save changes and recheck independent DSS validation.");
+                            } else {
+                                ui.label(&app.dss_local.message);
+                            }
+                        }
                     }
                     RightPanel::Accessibility => {
                         a11y_action = crate::a11y_ui::panel(ui, &t, a11y, id);
@@ -769,6 +781,14 @@ pub fn right_panel(app: &mut PdfCraftApp, ui: &mut egui::Ui) {
     }
     if let Some(a) = compare_action {
         app.compare_action(index, a);
+    }
+    app.dss_local.poll();
+    if dss_requested {
+        let doc = app.session.get(id);
+        let path = doc.and_then(|d| d.path.as_deref()).map(str::to_owned);
+        let dirty = doc.is_some_and(|d| d.dirty);
+        #[cfg(not(target_arch = "wasm32"))]
+        crate::dss_local::start(&mut app.dss_local, path.as_deref(), dirty);
     }
     match sig_action {
         Some(crate::sign_ui::PanelAction::Validate) => app.run_command("sign.validate"),
