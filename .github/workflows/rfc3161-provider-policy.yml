@@ -1,0 +1,26 @@
+name: RFC3161 provider policy (offline)
+on:
+  pull_request:
+    paths:
+      - 'tools/rfc3161_provider_probe.ps1'
+      - 'tools/test_rfc3161_provider_probe.ps1'
+      - '.github/workflows/rfc3161-provider-policy.yml'
+  push:
+    branches:
+      - feature/rfc3161-free-provider-probe-20261019
+    paths:
+      - 'tools/rfc3161_provider_probe.ps1'
+      - 'tools/test_rfc3161_provider_probe.ps1'
+      - '.github/workflows/rfc3161-provider-policy.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  offline-policy:
+    runs-on: windows-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate provider usage guards (no network)
+        shell: pwsh
+        run: ./tools/test_rfc3161_provider_probe.ps1
