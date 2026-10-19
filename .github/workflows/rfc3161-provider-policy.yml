@@ -1,9 +1,10 @@
-name: RFC3161 provider policy (offline)
+name: RFC3161 provider and bridge (offline)
 on:
   pull_request:
     paths:
       - 'tools/rfc3161_provider_probe.ps1'
       - 'tools/test_rfc3161_provider_probe.ps1'
+      - 'crates/sign/examples/rfc3161_external_pades_bt.rs'
       - '.github/workflows/rfc3161-provider-policy.yml'
   push:
     branches:
@@ -11,6 +12,7 @@ on:
     paths:
       - 'tools/rfc3161_provider_probe.ps1'
       - 'tools/test_rfc3161_provider_probe.ps1'
+      - 'crates/sign/examples/rfc3161_external_pades_bt.rs'
       - '.github/workflows/rfc3161-provider-policy.yml'
   workflow_dispatch:
 permissions:
@@ -20,7 +22,21 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v4
-      - name: Validate provider usage guards (no network)
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Validate provider usage guards (never accesses TSA network)
         shell: pwsh
         run: ./tools/test_rfc3161_provider_probe.ps1
+  rust-bridge-check:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: dtolnay/rust-toolchain@686976e191b89faba57d3206551f0f330d8cb249
+        with:
+          toolchain: stable
+          components: rustfmt
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6
+      - name: Verify Rust style
+        run: cargo fmt --all -- --check
+      - name: Compile on-demand PowerShell RFC3161 signing bridge (no live TSA)
+        run: cargo check --locked -p pdfcraft-sign --example rfc3161_external_pades_bt

@@ -108,6 +108,43 @@ network transport belong **outside** the cryptographic signing crate.
 7. Never silently downgrade from qualified to non-qualified TSA; never call
    the production TSA automatically in CI.
 
+## Signing bridge — test software identity only
+
+The Rust example
+`crates/sign/examples/rfc3161_external_pades_bt.rs` uses the existing
+`sign_with_timestamp` implementation. It creates a fresh RFC 3161
+`TimeStampReq` for the **CMS signature value**, invokes the opt-in
+PowerShell TSA adapter with safe positional arguments, checks the signed reply
+with Rust `parse_response`, attaches the CMS unsigned signature-time-stamp
+attribute, and saves the new signed PDF using an exclusive output file.
+
+Run on a machine with a working Rust toolchain and native PowerShell 7:
+
+```powershell
+$env:PDFCRAFT_TEST_PKCS12_PASSWORD = "test"
+cargo run --locked -p pdfcraft-sign --example rfc3161_external_pades_bt -- `
+  "C:\test\unsigned.pdf" "C:\test\signed-bt-candidate.pdf" `
+  ".\crates\sign\tests\data\rsa-aes.p12" `
+  "C:\Program Files\PowerShell\7\pwsh.exe" `
+  ".\tools\rfc3161_provider_probe.ps1" open-tsa "D:20261019190000Z"
+Remove-Item Env:PDFCRAFT_TEST_PKCS12_PASSWORD
+```
+
+**Never use a production or B-Trust private key in this demonstration.**
+The password environment variable is removed from the child TSA process.
+The input document is never sent to the TSA, only the SHA-256 imprint of the
+CMS signature value. Temporary `.tsq`/`.tsr` files are removed on exit,
+including when errors occur. No existing output is overwritten.
+
+The bridge only creates a **PAdES-B-T test candidate**, not a qualified
+signature. EU DSS acceptance of the final PDF, signer trust and qualified
+TSA status are separate external acceptance gates. It is not production
+GUI integration or an alternative to the B-Trust CNG provider.
+
+The local Windows compile can be blocked by Smart App Control / WDAC when
+Rust runs unsigned build scripts. Do **not** weaken Windows policy; CI
+compiles this example on an unblocked GitHub Actions Windows runner.
+
 The source's `tools/btrust_rfc3161_transport.py` remains the separate
 B-Trust-specific transport adapter and is not removed or mutated.
 
