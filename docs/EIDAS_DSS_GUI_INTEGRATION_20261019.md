@@ -28,3 +28,16 @@ Acceptance completed locally in WSL Ubuntu 24.04:
 The direct Windows `cargo check -p pdfcraft-ui-egui --offline` remains blocked by Windows Application Control, error 4551, on a generated Rust `winit` build script. Existing dependency errors from that run do not qualify as product-code regressions until compilation can proceed in an authorized build environment. The blocked Windows development build is not a substitute for a Windows GUI smoke test.
 
 For release signing, do not use a document-signing personal QES certificate as a code-signing credential. Use a certificate explicitly issued for Code Signing with an appropriate, policy-trusted publisher identity and verify its chain and timestamp, or an authorized narrowly scoped build environment. Signing the final EXE/MSI cannot itself authorize ephemeral, unsigned Rust build-script executables. No Windows security policy was weakened or disabled.
+
+## Read-only fallback while Windows GUI deployment is gated
+
+The repository includes `tools/verify-qes-local.ps1` for **already signed** PDFs. It invokes the same locally hosted EU DSS adapter using the installed Python 3.12, refuses inherited endpoint overrides, checks the returned PDF SHA-256 against the current file, and prints a compact result without personal certificate fields. It never performs a signing operation or asks for a PIN.
+
+From PowerShell 7, for example:
+
+```powershell
+Set-Location 'C:\Users\User\Documents\GitHub\pdfcraft-signatures'
+& 'C:\Users\User\Documents\GitHub\pdfcraft-signatures\tools\verify-qes-local.ps1' -PdfPath 'C:\Users\User\AppData\Local\Temp\pdfcraft-btrust-real-sign-20261017.pdf'
+```
+
+**Live acceptance (2026-10-19):** Windows PowerShell 7 `-File` execution exited 0 on the signed B-Trust test document, returning independent `QES PASS` / `QESig` / `TOTAL_PASSED` from local DSS 6.5.1. The native Windows GUI executable remains unchanged; this script does not claim to be its replacement, a trusted Windows code signature, or an issuer of PAdES-LT/LTA signatures.
