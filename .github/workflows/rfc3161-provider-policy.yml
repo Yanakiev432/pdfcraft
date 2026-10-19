@@ -1,0 +1,134 @@
+name: RFC3161 provider and bridge (offline)
+on:
+  pull_request:
+    paths:
+      - 'tools/rfc3161_provider_probe.ps1'
+      - 'tools/test_rfc3161_provider_probe.ps1'
+      - 'tools/make_rfc3161_fixture.py'
+      - 'crates/sign/examples/rfc3161_external_pades_bt.rs'
+      - '.github/workflows/rfc3161-provider-policy.yml'
+  push:
+    branches:
+      - feature/rfc3161-free-provider-probe-20261019
+    paths:
+      - 'tools/rfc3161_provider_probe.ps1'
+      - 'tools/test_rfc3161_provider_probe.ps1'
+      - 'crates/sign/examples/rfc3161_external_pades_bt.rs'
+      - '.github/workflows/rfc3161-provider-policy.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  offline-policy:
+    runs-on: windows-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Validate provider usage guards (never accesses TSA network)
+        shell: pwsh
+        run: ./tools/test_rfc3161_provider_probe.ps1
+  rust-bridge-check:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: dtolnay/rust-toolchain@686976e191b89faba57d3206551f0f330d8cb249
+        with:
+          toolchain: stable
+          components: rustfmt
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6
+      - name: Verify Rust style
+        run: cargo fmt --all -- --check
+      - name: Compile on-demand PowerShell RFC3161 signing bridge (no live TSA)
+        run: cargo check --locked -p pdfcraft-sign --example rfc3161_external_pades_bt
+      - name: One-shot LIVE Open TSA integration on public test PDF only
+        if: github.event_name == 'push' && contains(github.event.head_commit.message, '[tsa-live]')
+        shell: pwsh
+        env:
+          PDFCRAFT_TEST_PKCS12_PASSWORD: test
+        run: |
+          $ErrorActionPreference='Stop'
+          $source = Join-Path $PWD 'target/rfc3161-clean-unsigned-TEST.pdf'
+          python ./tools/make_rfc3161_fixture.py --out $source
+          if ($LASTEXITCODE -ne 0) { throw 'Clean deterministic PDF fixture generation failed' }
+          $fixtureSha = (Get-FileHash -LiteralPath $source -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($fixtureSha -ne '8b619a9b0f3bb43e75658c03c67dba876b2447d7eee08351e37c928ce607c13d') {
+            throw 'Clean deterministic PDF source unexpectedly changed'
+          }
+          $output = Join-Path $PWD 'target/rfc3161-open-tsa-NONQUALIFIED-TEST.pdf'
+          $testKey = Join-Path $PWD 'crates/sign/tests/data/rsa-aes.p12'
+          $adapter = Join-Path $PWD 'tools/rfc3161_provider_probe.ps1'
+          $pwshExe = (Get-Process -Id $PID).Path
+          $pdfDate = 'D:' + [DateTime]::UtcNow.ToString('yyyyMMddHHmmss') + 'Z'
+          cargo run --locked -p pdfcraft-sign --example rfc3161_external_pades_bt -- $source $output $testKey $pwshExe $adapter open-tsa $pdfDate
+          if ($LASTEXITCODE -ne 0) { throw 'Nonqualified Open TSA PAdES-B-T end-to-end test failed' }
+          if (-not (Test-Path -LiteralPath $output)) { throw 'Signed PDF output missing' }
+          Write-Host ('OPEN_TSA_PADES_B_T_NONQUALIFIED_E2E_PASS file_sha256=' + (Get-FileHash -LiteralPath $output -Algorithm SHA256).Hash.ToLowerInvariant())
+          Write-Host 'BTRUST_QES=NOT_TESTED EU_DSS=NOT_TESTED QUALIFIED_TSA=NO'
+      - name: Archive NONQUALIFIED test PDF for independent offline review
+        if: github.event_name == 'push' && contains(github.event.head_commit.message, '[tsa-live]')
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: pdfcraft-rfc3161-open-tsa-NONQUALIFIED-TEST
+          path: |
+            target/rfc3161-open-tsa-NONQUALIFIED-TEST.pdf
+            target/rfc3161-clean-unsigned-TEST.pdf
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 6
+
+  independent-clean-pdf-verification:
+    if: github.event_name == 'push' && contains(github.event.head_commit.message, '[tsa-live]')
+    needs: rust-bridge-check
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Download signed synthetic artifact with digest verification
+        uses: actions/download-artifact@cc203385981b70ca67e1cc392babf9cc229d5806 # v4.1.9
+        with:
+          name: pdfcraft-rfc3161-open-tsa-NONQUALIFIED-TEST
+          path: target
+      - name: Install independent inspection tools
+        shell: bash
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq poppler-utils openssl
+          python3 -m venv .venv
+          .venv/bin/python -m pip install --disable-pip-version-check 'pypdf==5.9.0' 'asn1crypto==1.5.1'
+      - name: Validate clean PAdES PDF with Poppler and OpenSSL
+        shell: bash
+        run: |
+          set -euo pipefail
+          pdfinfo target/rfc3161-open-tsa-NONQUALIFIED-TEST.pdf
+          .venv/bin/python tools/verify_rfc3161_nonqualified.py target/rfc3161-open-tsa-NONQUALIFIED-TEST.pdf --json target/rfc3161-independent-check.json
+          sha256sum target/rfc3161-clean-unsigned-TEST.pdf
+          pdftoppm -f 1 -l 1 -r 72 -png -singlefile target/rfc3161-open-tsa-NONQUALIFIED-TEST.pdf target/clean-tsa-render
+          .venv/bin/python - <<'PY'
+          import json
+          r=json.load(open("target/rfc3161-independent-check.json",encoding="utf-8"))
+          assert r["pdf_signatures"]==1 and r["poppler_pdfsig_cryptographic_signature"]=="PASS"
+          assert r["openssl_timestamp_cms_signature"]=="PASS" and r["rfc3161_imprint_matches_cms_signature_sha256"]=="PASS"
+          assert r["release_ready"] is False and r["eidas_qualified_tsa"] is False
+          print("INDEPENDENT_NONQUALIFIED_PADES_B_T_CRYPTO_PASS")
+          PY
+      - name: Reject signed-byte tampering and unsigned trailing bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          .venv/bin/python - <<'PY'
+          from pathlib import Path
+          raw=Path("target/rfc3161-open-tsa-NONQUALIFIED-TEST.pdf").read_bytes()
+          Path("target/rfc3161-tampered.pdf").write_bytes(raw.replace(b"PdfCraft", b"PdfCraFt", 1))
+          Path("target/rfc3161-unsigned-trailer.pdf").write_bytes(raw+b"\n")
+          PY
+          if .venv/bin/python tools/verify_rfc3161_nonqualified.py target/rfc3161-tampered.pdf; then exit 1; fi
+          if .venv/bin/python tools/verify_rfc3161_nonqualified.py target/rfc3161-unsigned-trailer.pdf; then exit 1; fi
+          echo 'NEGATIVE_TAMPER_TESTS=PASS'
+      - name: Archive independent findings (test only)
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: pdfcraft-rfc3161-INDEPENDENT-NONQUALIFIED-REPORT
+          path: target/rfc3161-independent-check.json
+          if-no-files-found: error
+          retention-days: 7
