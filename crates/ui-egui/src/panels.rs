@@ -698,6 +698,9 @@ pub fn right_panel(app: &mut PdfCraftApp, ui: &mut egui::Ui) {
                     RightPanel::Signatures => {
                         sig_action = crate::sign_ui::panel(ui, &t, &doc.signatures, sig_expanded);
                         ui.separator();
+                        if app.dss_local.pending {
+                            ui.ctx().request_repaint_after(std::time::Duration::from_millis(250));
+                        }
                         if ui.add_enabled(!app.dss_local.pending, egui::Button::new("Check QES with local EU DSS")).clicked() {
                             dss_requested = true;
                         }
