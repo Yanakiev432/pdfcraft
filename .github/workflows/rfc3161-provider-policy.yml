@@ -4,6 +4,7 @@ on:
     paths:
       - 'tools/rfc3161_provider_probe.ps1'
       - 'tools/test_rfc3161_provider_probe.ps1'
+      - 'tools/make_rfc3161_fixture.py'
       - 'crates/sign/examples/rfc3161_external_pades_bt.rs'
       - '.github/workflows/rfc3161-provider-policy.yml'
   push:
@@ -47,7 +48,13 @@ jobs:
           PDFCRAFT_TEST_PKCS12_PASSWORD: test
         run: |
           $ErrorActionPreference='Stop'
-          $source = Join-Path $PWD 'crates/sign/tests/data/openssl-signed.pdf'
+          $source = Join-Path $PWD 'target/rfc3161-clean-unsigned-TEST.pdf'
+          python ./tools/make_rfc3161_fixture.py --out $source
+          if ($LASTEXITCODE -ne 0) { throw 'Clean deterministic PDF fixture generation failed' }
+          $fixtureSha = (Get-FileHash -LiteralPath $source -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($fixtureSha -ne 'cb9504f12537ef36035926e9e5382b62ff7022b70c700a2f2e9fa1ea13204fec') {
+            throw 'Clean deterministic PDF source unexpectedly changed'
+          }
           $output = Join-Path $PWD 'target/rfc3161-open-tsa-NONQUALIFIED-TEST.pdf'
           $testKey = Join-Path $PWD 'crates/sign/tests/data/rsa-aes.p12'
           $adapter = Join-Path $PWD 'tools/rfc3161_provider_probe.ps1'
@@ -63,7 +70,9 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: pdfcraft-rfc3161-open-tsa-NONQUALIFIED-TEST
-          path: target/rfc3161-open-tsa-NONQUALIFIED-TEST.pdf
+          path: |
+            target/rfc3161-open-tsa-NONQUALIFIED-TEST.pdf
+            target/rfc3161-clean-unsigned-TEST.pdf
           if-no-files-found: error
           retention-days: 7
           compression-level: 6
