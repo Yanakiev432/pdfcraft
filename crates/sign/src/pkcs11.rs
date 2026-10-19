@@ -81,7 +81,7 @@ pub fn discover_slots(module_path: &std::path::Path) -> Result<Vec<TokenSlot>, S
     }
     let context = cryptoki::context::Pkcs11::new(module_path).map_err(|e| SignError::Crypto(format!("cannot load PKCS#11 module: {e}")))?;
     context
-        .initialize(cryptoki::context::CInitializeArgs::OsThreads)
+        .initialize(cryptoki::context::CInitializeArgs::new(cryptoki::context::CInitializeFlags::OS_LOCKING_OK))
         .map_err(|e| SignError::Crypto(format!("cannot initialize PKCS#11 module: {e}")))?;
     let slots = context.get_slots_with_token().map_err(|e| SignError::Crypto(format!("cannot enumerate PKCS#11 slots: {e}")))?;
     Ok(slots.into_iter().map(|slot| TokenSlot { slot_id: slot.id() }).collect())
@@ -108,7 +108,7 @@ pub fn discover_certificates(module_path: &std::path::Path) -> Result<Vec<TokenC
     }
     let context = cryptoki::context::Pkcs11::new(module_path).map_err(|e| SignError::Crypto(format!("cannot load PKCS#11 module: {e}")))?;
     context
-        .initialize(cryptoki::context::CInitializeArgs::OsThreads)
+        .initialize(cryptoki::context::CInitializeArgs::new(cryptoki::context::CInitializeFlags::OS_LOCKING_OK))
         .map_err(|e| SignError::Crypto(format!("cannot initialize PKCS#11 module: {e}")))?;
 
     let slots = context.get_slots_with_token().map_err(|e| SignError::Crypto(format!("cannot enumerate PKCS#11 slots: {e}")))?;
@@ -154,7 +154,7 @@ pub fn matching_private_key_count(module_path: &std::path::Path, slot_id: u64, k
     }
     let context = cryptoki::context::Pkcs11::new(module_path).map_err(|e| SignError::Crypto(format!("cannot load PKCS#11 module: {e}")))?;
     context
-        .initialize(cryptoki::context::CInitializeArgs::OsThreads)
+        .initialize(cryptoki::context::CInitializeArgs::new(cryptoki::context::CInitializeFlags::OS_LOCKING_OK))
         .map_err(|e| SignError::Crypto(format!("cannot initialize PKCS#11 module: {e}")))?;
     let slot = cryptoki::slot::Slot::try_from(slot_id).map_err(|e| SignError::Crypto(format!("invalid PKCS#11 slot ID: {e}")))?;
     let session = context.open_ro_session(slot).map_err(|e| SignError::Crypto(format!("cannot open PKCS#11 read-only session: {e}")))?;
@@ -186,7 +186,7 @@ pub fn sign_with_protected_authentication(
     let input = signing_input(mechanism, digest, message)?;
     let context = cryptoki::context::Pkcs11::new(module_path).map_err(|e| SignError::Crypto(format!("cannot load PKCS#11 module: {e}")))?;
     context
-        .initialize(cryptoki::context::CInitializeArgs::OsThreads)
+        .initialize(cryptoki::context::CInitializeArgs::new(cryptoki::context::CInitializeFlags::OS_LOCKING_OK))
         .map_err(|e| SignError::Crypto(format!("cannot initialize PKCS#11 module: {e}")))?;
     let slot = cryptoki::slot::Slot::try_from(slot_id).map_err(|e| SignError::Crypto(format!("invalid PKCS#11 slot ID: {e}")))?;
     let token = context.get_token_info(slot).map_err(|e| SignError::Crypto(format!("cannot read PKCS#11 token information: {e}")))?;
@@ -311,7 +311,7 @@ mod tests {
         let path = std::env::var("PDFCRAFT_TEST_PKCS11_MODULE").expect("set trusted module path");
         let module = std::path::Path::new(&path);
         let context = cryptoki::context::Pkcs11::new(module).expect("load trusted module");
-        context.initialize(cryptoki::context::CInitializeArgs::OsThreads).expect("initialize module");
+        context.initialize(cryptoki::context::CInitializeArgs::new(cryptoki::context::CInitializeFlags::OS_LOCKING_OK)).expect("initialize module");
         let slots = context.get_slots_with_token().expect("enumerate token slots");
         assert!(!slots.is_empty(), "no tokens found");
         for slot in slots {
