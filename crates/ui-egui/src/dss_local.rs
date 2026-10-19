@@ -1,12 +1,26 @@
 //! Opt-in local EU DSS check. Independent from PdfCraft's native trust verdict.
 #[cfg(not(target_arch = "wasm32"))]
 use sha2::{Digest, Sha256};
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct FileStamp {
+    len: u64,
+    modified: std::time::SystemTime,
+}
+
+impl FileStamp {
+    fn read(path: &str) -> std::io::Result<Self> {
+        let m = std::fs::metadata(path)?;
+        Ok(Self { len: m.len(), modified: m.modified()? })
+    }
+}
+
 #[derive(Clone, Debug, Default)]
 pub(crate) struct State {
     pub(crate) pending: bool,
     pub(crate) checked_path: Option<String>,
     pub(crate) message: String,
-    pub(crate) outcome: Option<std::sync::Arc<std::sync::Mutex<Option<Result<String, String>>>>>,
+    verified_stamp: Option<FileStamp>,
+    pub(crate) outcome: Option<std::sync::Arc<std::sync::Mutex<Option<Result<(String, FileStamp), String>>>>>,
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -15,6 +29,7 @@ pub(crate) fn start(state: &mut State, pdf: Option<&str>, dirty: bool) {
         return;
     }
     state.checked_path = pdf.map(str::to_owned);
+    state.verified_stamp = None;
     if dirty {
         state.message = "Save the document before independent DSS validation.".into();
         return;
@@ -48,7 +63,7 @@ pub(crate) fn start(state: &mut State, pdf: Option<&str>, dirty: bool) {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-fn run(python: &str, adapter: &str, pdf: &str) -> Result<String, String> {
+fn run(python: &str, adapter: &str, pdf: &str) -> Result<(String, FileStamp), String> {
     let output = std::process::Command::new(python)
         .arg("-I")
         .arg(adapter)
@@ -63,8 +78,13 @@ fn run(python: &str, adapter: &str, pdf: &str) -> Result<String, String> {
     if report.get("schema").and_then(serde_json::Value::as_str) != Some("pdfcraft.eidas.independent-dss.v1") {
         return Err("Unexpected independent DSS report schema.".into());
     }
-    let actual_sha256 = Sha256::digest(std::fs::read(pdf).map_err(|e| format!("Cannot re-read PDF: {e}"))?)
-        .iter().map(|b| format!("{b:02x}")).collect::<String>();
+    let before = FileStamp::read(pdf).map_err(|e| format!("Cannot stat PDF: {e}"))?;
+    let actual_sha256 =
+        Sha256::digest(std::fs::read(pdf).map_err(|e| format!("Cannot re-read PDF: {e}"))?).iter().map(|b| format!("{b:02x}")).collect::<String>();
+    let after = FileStamp::read(pdf).map_err(|e| format!("Cannot stat verified PDF: {e}"))?;
+    if before != after {
+        return Err("PDF changed during verification.".into());
+    }
     if report.get("pdf_sha256").and_then(serde_json::Value::as_str) != Some(actual_sha256.as_str()) {
         return Err("PDF changed during DSS validation (SHA-256 mismatch).".into());
     }
@@ -73,15 +93,33 @@ fn run(python: &str, adapter: &str, pdf: &str) -> Result<String, String> {
         && report.get("dss_indication").and_then(serde_json::Value::as_str) == Some("TOTAL_PASSED")
         && report.get("dss_signature_level").and_then(serde_json::Value::as_str) == Some("QESig");
     let result = if passed { "QES PASS" } else { "No QES PASS" };
-    Ok(format!("Independent EU DSS: {result}. Native validation is separate."))
+    Ok((format!("Independent EU DSS: {result}. Native validation is separate."), after))
 }
 
 impl State {
+    /// False for a replaced/saved PDF, even when its path is unchanged.
+    pub(crate) fn checked_file_unchanged(&self, path: Option<&str>) -> bool {
+        match (&self.verified_stamp, path) {
+            (Some(expected), Some(path)) => FileStamp::read(path).is_ok_and(|actual| actual == *expected),
+            (None, _) => true,
+            _ => false,
+        }
+    }
+
     pub(crate) fn poll(&mut self) {
         let Some(outcome) = self.outcome.as_ref() else { return };
         let completed = outcome.lock().ok().and_then(|mut guard| guard.take());
         if let Some(result) = completed {
-            self.message = result.unwrap_or_else(|e| format!("Independent DSS: {e}"));
+            match result {
+                Ok((message, stamp)) => {
+                    self.message = message;
+                    self.verified_stamp = Some(stamp);
+                }
+                Err(e) => {
+                    self.message = format!("Independent DSS: {e}");
+                    self.verified_stamp = None;
+                }
+            }
             self.pending = false;
             self.outcome = None;
         }
@@ -108,5 +146,20 @@ mod tests {
         assert!(!state.pending);
         assert!(state.message.contains("Save"));
         assert!(state.outcome.is_none());
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn saved_pdf_replacement_invalidates_previous_validation() {
+        let unique = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+        let path = std::env::temp_dir().join(format!("pdfcraft-dss-stamp-{}-{unique}.pdf", std::process::id()));
+        let filename = path.to_str().unwrap();
+        std::fs::write(&path, b"original").unwrap();
+        let mut state = State::default();
+        state.verified_stamp = Some(super::FileStamp::read(filename).unwrap());
+        assert!(state.checked_file_unchanged(Some(filename)));
+        std::fs::write(&path, b"modified PDF bytes and length").unwrap();
+        assert!(!state.checked_file_unchanged(Some(filename)));
+        std::fs::remove_file(&path).unwrap();
     }
 }

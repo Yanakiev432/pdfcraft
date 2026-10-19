@@ -707,6 +707,8 @@ pub fn right_panel(app: &mut PdfCraftApp, ui: &mut egui::Ui) {
                         if app.dss_local.checked_path.as_deref() == doc.path.as_deref() && !app.dss_local.message.is_empty() {
                             if doc.dirty {
                                 ui.label("Save changes and recheck independent DSS validation.");
+                            } else if !app.dss_local.checked_file_unchanged(doc.path.as_deref()) {
+                                ui.label("PDF changed on disk since independent DSS validation. Recheck QES.");
                             } else {
                                 ui.label(&app.dss_local.message);
                             }
