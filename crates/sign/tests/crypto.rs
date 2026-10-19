@@ -295,6 +295,9 @@ fn crls_verify_and_report_revocation() {
     // Not on the list: good.
     let clean = CertificateList::parse(&crl(&id, None, this, next)).unwrap();
     assert_eq!(clean.check(issuer, issuer, at), RevocationStatus::Good);
+    let mut non_crl_signer = issuer.clone();
+    non_crl_signer.key_usage = Some(1 << 5); // keyCertSign but not cRLSign
+    assert_eq!(clean.check(issuer, &non_crl_signer, at), RevocationStatus::Unknown);
     // On the list: revoked with its date.
     let revoked =
         CertificateList::parse(&crl(&id, Some((&issuer.serial, Time { year: 2026, month: 6, day: 1, hour: 8, minute: 0, second: 0 })), this, next))

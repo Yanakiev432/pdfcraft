@@ -29,6 +29,13 @@
     "qualified_time": false,
     "verification": "signed issuer/responder, matching CertID/serial, not revoked, within both response validity intervals"
   },
+  "additional_authorization_checks": {
+    "crl_issuer_crlSign_keyUsage_enforced": true,
+    "delegated_ocsp_responder_valid_at_evaluation": true,
+    "delegated_ocsp_responder_digitalSignature_keyUsage_enforced": true,
+    "negative_wrong_crl_signer_usage_test_pass": true,
+    "result_after_authz_hardening_same_sha256": true
+  },
   "implementation": {
     "branch": "feature/pades-lt-ocsp-crl-20261019",
     "changes": [

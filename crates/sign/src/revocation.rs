@@ -107,6 +107,11 @@ impl CertificateList {
         if self.issuer_raw != issuer.subject.raw || issuer.subject.raw != cert.issuer.raw {
             return RevocationStatus::Unknown;
         }
+        // RFC 5280 keyUsage bit 6: a CA may sign CRLs only if cRLSign is
+        // granted whenever its keyUsage extension is present.
+        if issuer.key_usage.is_some_and(|usage| usage & (1 << 6) == 0) {
+            return RevocationStatus::Unknown;
+        }
         if !verify_signature(&self.tbs, &self.sig_alg, &self.signature, &issuer.public_key) {
             return RevocationStatus::Unknown;
         }
@@ -287,6 +292,11 @@ impl OcspResponse {
         let Some(responder) = responder else { return RevocationStatus::Unknown };
         // A delegated responder must carry the OCSP-signing EKU and be issued by the issuer.
         if responder.subject.raw != issuer.subject.raw {
+            // A delegated responder must be authorized at the *evaluation*
+            // time and, if keyUsage is present, permit digital signatures.
+            if !responder.valid_at(at) || responder.key_usage.is_some_and(|usage| usage & 1 == 0) {
+                return RevocationStatus::Unknown;
+            }
             if responder.issuer.raw != issuer.subject.raw || !responder.signed_by(&issuer.public_key) {
                 return RevocationStatus::Unknown;
             }
