@@ -1,0 +1,43 @@
+{
+  "schema": "pdfcraft.upstream-integration-qa.v1",
+  "date": "2026-10-19",
+  "branch": "integration/upstream-main-20261019",
+  "merge_commit": "2c58410a3d2248ee97a3cbba11b5bf9a6b113975",
+  "parent_feature_commit": "9090bb0415a7420b2bfa3b0e174e3b45ea29ab52",
+  "parent_fork_main_commit": "43550c448db3ba91753f638e3843c0da036bbd60",
+  "source_version_after_merge": "0.9.0",
+  "pre_merge_ahead_count": 116,
+  "pre_merge_behind_count": 234,
+  "merge_file_conflicts": 0,
+  "merge_method": "git merge --no-ff fork/main on isolated new local integration branch; no rebase/reset/force-push",
+  "scope": {
+    "original_feature_branch_modified": false,
+    "fork_main_modified": false,
+    "global_windows_install_modified": false,
+    "code_signing_certificates_used": false
+  },
+  "local_checks": {
+    "cargo_fmt_all_check": "PASS",
+    "cargo_metadata_locked_offline_no_deps": "PASS",
+    "cargo_check_pdfcraft_sign_locked_offline": "PASS",
+    "cargo_check_pdfcraft_windows_gnu_locked_offline": "PASS",
+    "cargo_test_pdfcraft_sign_locked_offline": "PASS; 52 PDF signature tests passed, no failures",
+    "cargo_test_ui_egui_dss_local": "PASS; 3/3 DSS GUI regression tests (477 other tests filtered)"
+  },
+  "ci": {
+    "integration_branch_remote_published": true,
+    "integration_branch_github_actions_run": null,
+    "feature_branch_actions": [
+      "https://github.com/Yanakiev432/pdfcraft/actions/runs/39246086537",
+      "https://github.com/Yanakiev432/pdfcraft/actions/runs/39246081262"
+    ]
+  },
+  "limits": [
+    "Clean text merge and compiler acceptance do not prove interactive GUI QES button still works after upstream merge",
+    "No new real B-Trust device signing was performed following cryptoki upgrade",
+    "B-T/B-LT/B-LTA production issuance not proven",
+    "Code-signed trusted MSI absent and SignPath approval absent",
+    "Release of ArtCraft-branded modified binaries remains restricted pending branding/licensing review"
+  ],
+  "release_gate": "NO_GO until independent acceptance, trusted signing and branding review"
+}

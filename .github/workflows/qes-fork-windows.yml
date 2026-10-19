@@ -6,6 +6,7 @@ on:
   push:
     branches:
       - feature/universal-signature-providers
+      - integration/upstream-main-20261019
     paths:
       - ".github/workflows/qes-fork-windows.yml"
       - "Cargo.toml"

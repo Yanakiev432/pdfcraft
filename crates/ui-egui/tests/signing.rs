@@ -239,12 +239,19 @@ fn drawing_a_signature_creating_an_id_signing_and_trusting() {
     h.get_by_label("Don't save").click();
     h.run_steps(2);
     assert_eq!(h.state().views.len(), 1);
-    // Trusted certificates and the ID list persist.
+    // Trusted certificates and the ID list persist. Windows also seeds the
+    // native OS trust store (hundreds of roots), so the count is not exactly 1.
+    // Verify preservation of the actual DER identities rather than an
+    // OS-dependent number of certificates.
+    let trusted_before: Vec<Vec<u8>> = h.state().session.trusted_certificates().iter().map(|cert| cert.raw.clone()).collect();
+    assert!(!trusted_before.is_empty());
     let saved = h.state().persist();
     let mut fresh = PdfCraftApp::new();
     fresh.set_option("language", "en").unwrap();
     fresh.restore(&saved);
-    assert_eq!((fresh.digital_ids.len(), fresh.session.trusted_certificates().len()), (1, 1));
+    assert_eq!(fresh.digital_ids.len(), 1);
+    let trusted_after: std::collections::HashSet<&[u8]> = fresh.session.trusted_certificates().iter().map(|cert| cert.raw.as_slice()).collect();
+    assert!(trusted_before.iter().all(|cert| trusted_after.contains(cert.as_slice())), "all previously trusted certificates survive reload");
 }
 
 #[test]
@@ -283,6 +290,38 @@ fn certifying_without_a_visible_signature() {
     let sig = doc.signatures.iter().find(|x| x.signed).unwrap();
     assert_eq!((sig.certify, sig.visible), (Some(2), false));
     h.get_by_label_contains("Certified by Test Signer EC");
+}
+
+#[test]
+fn save_as_keeps_a_signed_document_incremental() {
+    // #2165: Save As to a new file rewrites unsigned documents in full; a signed one is appended
+    // to, or its signature would no longer cover the file.
+    let p12 = concat!(env!("CARGO_MANIFEST_DIR"), "/../sign/tests/data/ec-p256.p12");
+    let digital_id = pdfcraft_engine::sign::pkcs12::open(&std::fs::read(p12).unwrap(), "test").unwrap();
+    let mut s = pdfcraft_engine::Session::new();
+    let id = s.open("contract.pdf", None, std::sync::Arc::new(FIXTURE.to_vec()), None).unwrap();
+    let opts = pdfcraft_engine::SignOptions { page: 0, rect: Some([20.0, 20.0, 180.0, 60.0]), ..Default::default() };
+    let signed = s.sign(id, &digital_id, opts).unwrap();
+    let out = dir().join("copy.pdf");
+    let (bytes, cert) = (signed.to_vec(), digital_id.certificate.clone());
+    let mut h = Harness::builder().with_size(egui::vec2(1400.0, 900.0)).build_eframe(move |_cc| {
+        let mut app = PdfCraftApp::new();
+        app.set_option("language", "en").unwrap();
+        app.open_bytes("contract.pdf", None, bytes).expect("opens");
+        app.session.set_trusted_certificates(vec![cert]);
+        app
+    });
+    h.run_steps(4);
+    let status = |h: &Harness<'static, PdfCraftApp>| {
+        let s = h.state();
+        s.session.get(s.views[0].id).unwrap().signatures.iter().find(|x| x.signed).map(|x| x.status)
+    };
+    assert_eq!(status(&h), Some(SignatureStatus::Valid));
+    h.state_mut().save_override = Some(out.to_string_lossy().into_owned());
+    assert!(h.state_mut().save_active(pdfcraft_ui_egui::SaveTarget::As), "a signed document can be saved as a copy");
+    let saved = std::fs::read(&out).expect("file written");
+    assert!(saved.starts_with(&signed), "the signed revision is kept as it was");
+    assert_eq!(status(&h), Some(SignatureStatus::Valid));
 }
 
 /// The fixture with an empty signature field across the bottom of the page.
