@@ -1,14 +1,7 @@
 > [!WARNING]
 > **Unofficial experimental fork maintained by `Yanakiev432`.** Not an official ArtCraft/PdfCraft release. The B-Trust QES development build is not code-signed; do not distribute it as a trusted Windows installer. Public signing and higher PAdES-B-T/LT/LTA acceptance remain blocked until external evidence and approval. Read the [Code signing policy](docs/CODE_SIGNING_POLICY_20261019.md) and [release gate](docs/WINDOWS_TRUSTED_RELEASE_CANDIDATE_20261019.md). This source tree still carries upstream branding; modified binaries must be rebranded before redistribution.
 
-<p align="center">
-  <a href="https://getartcraft.com/">
-    <picture>
-      <source media="(prefers-color-scheme: dark)" srcset="docs/brand/artcraft-logo-white.svg">
-      <img alt="ArtCraft" src="docs/brand/artcraft-logo.svg" width="200">
-    </picture>
-  </a>
-</p>
+<p align="center"><strong>Independent PdfCraft fork</strong></p>
 
 
 <h1 align="center">PdfCraft</h1>
@@ -75,7 +68,7 @@ PdfCraft is part of [ArtCraft](https://getartcraft.com). Come say hello, get hel
 - **Web page:** [getartcraft.com/apps/pdfcraft](https://getartcraft.com/apps/pdfcraft)
 - **Source:** [github.com/storytold/pdfcraft](https://github.com/storytold/pdfcraft)
 
-The ArtCraft name and logos in `docs/brand/` are trademarks of the ArtCraft Team and are not open source. They may be used only unmodified, and only as part of PdfCraft (see `docs/brand/LICENSE-brand.txt`). Forks and modified versions must remove them.
+The original ArtCraft trademarked logo assets are excluded from this modified fork. Open-source upstream attributions and original legal notices are retained.
 
 ## Highlights
 
@@ -252,7 +245,7 @@ Press <kbd>⌘K</kbd> to search every tool and command, or browse the **All tool
 <table>
 <tr>
 <td width="50%"><img src="docs/images/pdfcraft-palette.png" alt="The command palette searching for 'page', listing Page grid, Page labels, Rotate pages, Insert pages, Delete pages, Extract pages and more, each with the tool it belongs to"></td>
-<td width="50%"><img src="docs/images/pdfcraft-tools.png" alt="The Welcome to PdfCraft home screen with recommended tools, a recent file, a privacy note, and the full tool catalogue in the side panel"></td>
+<td width="50%"><em>Home screen preview excluded from the modified edition pending regeneration without third-party marks.</em></td>
 </tr>
 <tr>
 <td align="center"><sub>The <kbd>⌘K</kbd> command palette</sub></td>
@@ -579,15 +572,9 @@ with its author, source and license in [ATTRIBUTION.md](ATTRIBUTION.md). Release
 the Japanese fonts of [craft-fonts](https://github.com/storytold/craft-fonts/blob/main/ATTRIBUTION.md)
 (SIL Open Font License 1.1).
 
-The ArtCraft name, wordmark and logos in [`docs/brand/`](docs/brand/) are trademarks of the
-ArtCraft Team and are not covered by this license. They may be used only unmodified, and only as
-part of this repository and PdfCraft, under [`docs/brand/LICENSE-brand.txt`](docs/brand/LICENSE-brand.txt).
-Forks and modified versions must remove them.
+The protected upstream ArtCraft marks have been excluded from this modified fork. Original source, history, and licensing obligations are preserved.
 
-<p align="center">
-  <a href="https://getartcraft.com/"><img alt="ArtCraft" src="docs/brand/artcraft-mark.svg" width="28"></a><br>
-  <sub>Made by the <a href="https://getartcraft.com/">ArtCraft</a> team and community.</sub>
-</p>
+<p align="center"><sub>Independent community fork based on PdfCraft; not endorsed by the original ArtCraft team.</sub></p>
 
 Tools and Inspector panels can be dragged into tab groups, split beside the PDF, or floated within the app window. Read and full-screen modes keep their existing focused document view. Drag a panel header to a target edge or another header. Its context menu offers Float panel, Move to group, and Close panel. Existing panel toggles reopen panels at their saved location; Reset Panel Layout restores the app layout. Floating panels remain inside the current app window.
 
@@ -599,3 +586,8 @@ A center `move` can include `before` (panel ID or null to append) for tab order.
 The equivalent `{"action": ...}` form accepts a serialized shared docking action;
 this is also the form emitted by the renderer. Protected-canvas and app-specific panel
 rules apply equally to both forms.
+
+
+## Craft fork — Windows code-signing status
+
+This modified open-source fork is **not** a SignPath Foundation-approved or trusted signed release. We are evaluating its free OSS code-signing program; there is no current Craft edition publisher signature or approved installer. See the [public code-signing policy and release gates](docs/CODE_SIGNING_POLICY.md). Restricted upstream marks are removed in this branch; all remaining screenshots, package metadata and binaries still require a complete pre-release review. Do not install an unsigned experimental MSI as a trusted release.

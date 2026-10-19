@@ -1,16 +1,34 @@
 //! Opt-in local EU DSS check. Independent from PdfCraft's native trust verdict.
-#[cfg(not(target_arch = "wasm32"))]
 use sha2::{Digest, Sha256};
+use std::io::Read;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct FileStamp {
     len: u64,
     modified: std::time::SystemTime,
+    /// Full-content digest, not just file length or mtime (which can be restored).
+    sha256: [u8; 32],
 }
 
 impl FileStamp {
     fn read(path: &str) -> std::io::Result<Self> {
-        let m = std::fs::metadata(path)?;
-        Ok(Self { len: m.len(), modified: m.modified()? })
+        let before = std::fs::metadata(path)?;
+        let mut source = std::fs::File::open(path)?;
+        let mut sha = Sha256::new();
+        let mut buf = [0_u8; 64 * 1024];
+        loop {
+            let n = source.read(&mut buf)?;
+            if n == 0 {
+                break;
+            }
+            sha.update(&buf[..n]);
+        }
+        let after = std::fs::metadata(path)?;
+        if before.len() != after.len() || before.modified()? != after.modified()? {
+            return Err(std::io::Error::other("PDF changed during SHA-256 scan"));
+        }
+        let mut sha256 = [0_u8; 32];
+        sha256.copy_from_slice(&sha.finalize());
+        Ok(Self { len: before.len(), modified: before.modified()?, sha256 })
     }
 }
 
@@ -82,8 +100,7 @@ fn run(python: &str, adapter: &str, pdf: &str) -> Result<(String, FileStamp), St
         return Err("Unexpected independent DSS report schema.".into());
     }
     let before = FileStamp::read(pdf).map_err(|e| format!("Cannot stat PDF: {e}"))?;
-    let actual_sha256 =
-        Sha256::digest(std::fs::read(pdf).map_err(|e| format!("Cannot re-read PDF: {e}"))?).iter().map(|b| format!("{b:02x}")).collect::<String>();
+    let actual_sha256 = before.sha256.iter().map(|b| format!("{b:02x}")).collect::<String>();
     let after = FileStamp::read(pdf).map_err(|e| format!("Cannot stat verified PDF: {e}"))?;
     if before != after {
         return Err("PDF changed during verification.".into());
@@ -100,7 +117,8 @@ fn run(python: &str, adapter: &str, pdf: &str) -> Result<(String, FileStamp), St
 }
 
 impl State {
-    /// False for a replaced/saved PDF, even when its path is unchanged.
+    /// Fail closed on byte changes even when the path, length and mtime are preserved.
+    /// This intentionally hashes the on-disk file when displaying a prior QES result.
     pub(crate) fn checked_file_unchanged(&self, path: Option<&str>) -> bool {
         match (&self.verified_stamp, path) {
             (Some(expected), Some(path)) => FileStamp::read(path).is_ok_and(|actual| actual == *expected),
@@ -161,6 +179,26 @@ mod tests {
         let state = State { verified_stamp: Some(super::FileStamp::read(filename).unwrap()), ..State::default() };
         assert!(state.checked_file_unchanged(Some(filename)));
         std::fs::write(&path, b"modified PDF bytes and length").unwrap();
+        assert!(!state.checked_file_unchanged(Some(filename)));
+        std::fs::remove_file(&path).unwrap();
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn same_size_and_restored_mtime_cannot_reuse_qes_verdict() {
+        let path = std::env::temp_dir().join(format!("pdfcraft-dss-same-mtime-{}.pdf", std::process::id()));
+        std::fs::write(&path, b"version A").unwrap();
+        let filename = path.to_str().unwrap();
+        let original = super::FileStamp::read(filename).unwrap();
+        let state = State { verified_stamp: Some(original.clone()), ..State::default() };
+        assert!(state.checked_file_unchanged(Some(filename)));
+
+        std::fs::write(&path, b"version B").unwrap(); // Same byte length.
+        std::fs::OpenOptions::new().write(true).open(&path).unwrap().set_modified(original.modified).unwrap();
+        let altered = super::FileStamp::read(filename).unwrap();
+        assert_eq!(original.len, altered.len);
+        assert_eq!(original.modified, altered.modified);
+        assert_ne!(original.sha256, altered.sha256);
         assert!(!state.checked_file_unchanged(Some(filename)));
         std::fs::remove_file(&path).unwrap();
     }
