@@ -194,12 +194,7 @@ mod tests {
         assert!(state.checked_file_unchanged(Some(filename)));
 
         std::fs::write(&path, b"version B").unwrap(); // Same byte length.
-        std::fs::OpenOptions::new()
-            .write(true)
-            .open(&path)
-            .unwrap()
-            .set_modified(original.modified)
-            .unwrap();
+        std::fs::OpenOptions::new().write(true).open(&path).unwrap().set_modified(original.modified).unwrap();
         let altered = super::FileStamp::read(filename).unwrap();
         assert_eq!(original.len, altered.len);
         assert_eq!(original.modified, altered.modified);
