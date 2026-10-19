@@ -596,3 +596,8 @@ A center `move` can include `before` (panel ID or null to append) for tab order.
 The equivalent `{"action": ...}` form accepts a serialized shared docking action;
 this is also the form emitted by the renderer. Protected-canvas and app-specific panel
 rules apply equally to both forms.
+
+
+## Craft fork — Windows code-signing status
+
+This modified open-source fork is **not** a SignPath Foundation-approved or trusted signed release. We are evaluating its free OSS code-signing program; there is no current Craft edition publisher signature or approved installer. See the [public code-signing policy and release gates](docs/CODE_SIGNING_POLICY.md). Upstream logos/marks are separately licensed and must be replaced before releasing a modified product. Do not install an unsigned experimental MSI as a trusted release.
