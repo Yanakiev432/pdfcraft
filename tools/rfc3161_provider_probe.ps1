@@ -3,8 +3,8 @@
 .SYNOPSIS
   One-shot, source-verifiable RFC 3161 transport and cryptographic smoke test.
 .DESCRIPTION
-  Sends a synthetic SHA-256 message imprint and fresh unpredictable nonce, not a PDF.
-  Checks HTTP, DER, CMS signature, message imprint and returned nonce.
+  Sends a synthetic SHA-256 imprint with fresh nonce, or accepts a pre-built .tsq.
+  Never sends original PDF bytes. Checks HTTP, DER, CMS signature, imprint, nonce.
   Does NOT validate the eIDAS trust list, certificate chain/revocation or PAdES.
   Open TSA is non-qualified, expressly intended for developer experiments.
   ACCV is for personal use ONLY and requires explicit -ConfirmPersonalUse.
@@ -17,6 +17,7 @@ param(
     [switch]$ConfirmPersonalUse,
     [ValidateRange(2,30)]
     [int]$TimeoutSeconds = 15,
+    [string]$RequestPath,
     [string]$ResponsePath
 )
 $ErrorActionPreference = 'Stop'
@@ -29,27 +30,86 @@ $providers = @{
     'accv-personal' = @{Url='http://tss.accv.es:8318/tsa'; Qualified='UNDETERMINED'; Usage='PERSONAL_ONLY'}
 }
 $profile=$providers[$Provider]
-$probe = "PdfCraft-RFC3161-synthetic-$([Guid]::NewGuid().ToString('N'))"
-$imprint=[System.Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($probe))
-$nonceBytes=[Security.Cryptography.RandomNumberGenerator]::GetBytes(8)
-$nonceBytes[0]=[byte]($nonceBytes[0] -band 0x7f)
-$nonce=[System.Numerics.BigInteger]::new([byte[]]$nonceBytes,$true,$true)
-if($nonce.IsZero){$nonce=[System.Numerics.BigInteger]::One}
 $der=[System.Formats.Asn1.AsnEncodingRules]::DER
-$writer=[System.Formats.Asn1.AsnWriter]::new($der)
-$writer.PushSequence()|Out-Null
-$writer.WriteInteger(1)
-$writer.PushSequence()|Out-Null
-$writer.PushSequence()|Out-Null
-$writer.WriteObjectIdentifier('2.16.840.1.101.3.4.2.1')
-$writer.WriteNull()
-$writer.PopSequence()|Out-Null
-$writer.WriteOctetString($imprint)
-$writer.PopSequence()|Out-Null
-$writer.WriteInteger($nonce)
-$writer.WriteBoolean($true)
-$writer.PopSequence()|Out-Null
-$requestBytes=$writer.Encode()
+$requestedPolicy=$null
+if($ResponsePath){
+    $destFull=[IO.Path]::GetFullPath($ResponsePath)
+    if([IO.File]::Exists($destFull)){throw 'ResponsePath already exists; refusing overwrite'}
+    if(-not [IO.Directory]::Exists([IO.Path]::GetDirectoryName($destFull))){
+        throw 'ResponsePath parent directory must exist'
+    }
+    if($RequestPath -and [IO.Path]::GetFullPath($RequestPath) -eq $destFull){
+        throw 'RequestPath and ResponsePath must differ'
+    }
+}
+if($RequestPath){
+    $requestFile=Get-Item -LiteralPath $RequestPath -ErrorAction Stop
+    if(-not $requestFile.PSIsContainer -and $requestFile.Length -gt 0 -and $requestFile.Length -le 1MB){
+        $requestBytes=[IO.File]::ReadAllBytes($requestFile.FullName)
+    } else {throw 'RequestPath is not a nonempty DER file up to 1 MiB'}
+    $requestReader=[System.Formats.Asn1.AsnReader]::new([ReadOnlyMemory[byte]]$requestBytes,$der)
+    $query=$requestReader.ReadSequence()
+    if($query.ReadInteger() -ne 1){throw 'Unsupported TimeStampReq version'}
+    $messageImprint=$query.ReadSequence()
+    $digestAlgorithm=$messageImprint.ReadSequence()
+    $digestOid=$digestAlgorithm.ReadObjectIdentifier()
+    if($digestAlgorithm.HasData){$digestAlgorithm.ReadNull()}
+    if($digestAlgorithm.HasData -or $digestOid -ne '2.16.840.1.101.3.4.2.1'){
+        throw 'TimeStampReq must use SHA-256'
+    }
+    $imprint=[byte[]]$messageImprint.ReadOctetString()
+    if($imprint.Length -ne 32 -or $messageImprint.HasData){throw 'Invalid SHA-256 messageImprint'}
+    $nonce=$null
+    $certReq=$false
+    $seenCertReq=$false
+    while($query.HasData){
+        $tag=$query.PeekTag()
+        if($tag.TagClass -ne [System.Formats.Asn1.TagClass]::Universal){throw 'Unsupported TimeStampReq extensions'}
+        switch($tag.TagValue){
+            6 {
+                if($null -ne $requestedPolicy){throw 'Repeated TimeStampReq policy'}
+                $requestedPolicy=$query.ReadObjectIdentifier()
+            }
+            2 {
+                if($null -ne $nonce){throw 'Repeated TimeStampReq nonce'}
+                $nonce=$query.ReadInteger()
+            }
+            1 {
+                if($seenCertReq){throw 'Repeated certReq'}
+                $seenCertReq=$true
+                $certReq=$query.ReadBoolean()
+            }
+            default {throw 'Unexpected TimeStampReq field'}
+        }
+    }
+    if($requestReader.HasData -or $null -eq $nonce -or $nonce -le 0 -or -not $certReq){
+        throw 'TimeStampReq requires a positive nonce and certReq=true'
+    }
+    $requestMode='EXTERNAL_TSQ'
+}
+else {
+    $probe = "PdfCraft-RFC3161-synthetic-$([Guid]::NewGuid().ToString('N'))"
+    $imprint=[System.Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($probe))
+    $nonceBytes=[Security.Cryptography.RandomNumberGenerator]::GetBytes(8)
+    $nonceBytes[0]=[byte]($nonceBytes[0] -band 0x7f)
+    $nonce=[System.Numerics.BigInteger]::new([byte[]]$nonceBytes,$true,$true)
+    if($nonce.IsZero){$nonce=[System.Numerics.BigInteger]::One}
+    $writer=[System.Formats.Asn1.AsnWriter]::new($der)
+    $writer.PushSequence()|Out-Null
+    $writer.WriteInteger(1)
+    $writer.PushSequence()|Out-Null
+    $writer.PushSequence()|Out-Null
+    $writer.WriteObjectIdentifier('2.16.840.1.101.3.4.2.1')
+    $writer.WriteNull()
+    $writer.PopSequence()|Out-Null
+    $writer.WriteOctetString($imprint)
+    $writer.PopSequence()|Out-Null
+    $writer.WriteInteger($nonce)
+    $writer.WriteBoolean($true)
+    $writer.PopSequence()|Out-Null
+    $requestBytes=$writer.Encode()
+    $requestMode='SYNTHETIC'
+}
 $handler=[Net.Http.HttpClientHandler]::new()
 $handler.AllowAutoRedirect=$false
 $handler.UseCookies=$false
@@ -91,6 +151,7 @@ $info=[System.Formats.Asn1.AsnReader]::new([ReadOnlyMemory[byte]]$cms.ContentInf
 $tst=$info.ReadSequence()
 if($tst.ReadInteger() -ne 1){throw 'Invalid TSTInfo version'}
 $policy=$tst.ReadObjectIdentifier()
+if($requestedPolicy -and $policy -ne $requestedPolicy){throw 'TimeStampResp policy differs from TimeStampReq'}
 $imprintSeq=$tst.ReadSequence()
 $algorithm=$imprintSeq.ReadSequence()
 $hashOid=$algorithm.ReadObjectIdentifier()
@@ -135,6 +196,8 @@ if($ResponsePath){
 }
 [pscustomobject]@{
     protocol='RFC3161'
+    request_mode=$requestMode
+    request_sha256=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($requestBytes)).ToLowerInvariant()
     provider=$Provider
     profile_usage=$profile.Usage
     http_status=200

@@ -10,6 +10,7 @@ eIDAS qualification declaration or a claim of PAdES-B-T/LT/LTA success.
 | Open TSA (Germany) | `https://tsr.open-tsa.eu` | **Not eIDAS-qualified** (provider disclosure) | Free public endpoint for developers, researchers, NGOs and startups; project is MIT-licensed | **LIVE TEST**: synthetic imprint and fresh nonce; never trust as a qualified timestamp |
 | ACCV (Spain) | `http://tss.accv.es:8318/tsa` | Provider advertises qualified timestamps; independently verify the issued token/service against EU Trusted Lists | Free for **personal use** by citizens; professional use requires payment; detected uncontracted professional usage is cut off | **PERSONAL ONLY**: require explicit confirmation; no automatic CI use and no background retry |
 | APED (Greece) | `https://timestamp.aped.gov.gr/qtss` | APED CP/CPS describes qualified time-stamps and TSA policies | Official JSignPDF instructions show SHA-256 without authentication; CP/CPS identifies prohibited usages including certain testing documents | **NO SYNTHETIC PROBE**: actual document only after individual terms review |
+| Sectigo eIDAS | `http://timestamp.sectigo.com/qualified` | Provider documents an eIDAS compliant qualified TSA; token must be independently verified | No official unconditional free-use entitlement established | **RESEARCH ONLY**: do not assume free use; not selected as default |
 | B-Trust (Bulgaria) | Provider-specific, subject to contractual provisioning | Qualified service must be independently checked | API/credentials remain external provisioning dependency | No blocking dependency; no guessed credentials |
 
 Official evidence:
@@ -20,6 +21,7 @@ Official evidence:
 - APED current endpoint: https://aped.gov.gr/allagi-archis-chronosimansis-chronosfragidas-tis-aped/
 - APED official JSignPDF instructions: https://aped.gov.gr/wp-content/uploads/sign_with_jsign_apr2022.pdf (p. 7)
 - APED CP/CPS: https://pki.aped.gov.gr/repository/downloads/CP-CPS_APED_en_v1.1.pdf (pp. 59–61)
+- Sectigo RFC3161 and eIDAS URLs: https://www.sectigo.com/resource-library/time-stamping-server
 - EU Trusted Lists: https://eidas.ec.europa.eu/efda/trust-services/browse/eidas/tls
 - Protocol: https://www.rfc-editor.org/rfc/rfc3161
 
@@ -34,9 +36,23 @@ On Windows with PowerShell 7:
 & .\tools\rfc3161_provider_probe.ps1 -Provider open-tsa
 ```
 
-The probe sends a synthetic SHA-256 message imprint only, with a fresh
-cryptographically random nonce, to the explicitly selected provider. It fails
-closed on: HTTP status, unexpected MIME, oversize content, malformed DER, rejected
+By default the probe sends a synthetic SHA-256 message imprint only, with a
+fresh cryptographically random nonce. For a caller-generated RFC 3161 DER request
+(for example from `TimestampQuery::encode`), use the following external-file
+round trip; neither request nor reply includes the original PDF:
+
+```powershell
+& .\tools\rfc3161_provider_probe.ps1 -Provider open-tsa `
+  -RequestPath .\tmp\prepared.tsq -ResponsePath .\tmp\received.tsr
+```
+
+The external request is rejected unless it is canonical DER with SHA-256,
+32-byte imprint, positive nonce and `certReq=true`; any optional requested
+policy must match the returned token. The output is created exclusively only
+after the response's cryptographic checks pass. It still does not prove that
+the request was built over the correct PDF signature value.
+
+Both modes fail closed on: HTTP status, unexpected MIME, oversize content, malformed DER, rejected
 PKIStatus, missing/invalid CMS signer, invalid CMS signature, unexpected TSTInfo,
 wrong hash, absent/changed nonce, absent timeStamping EKU or duplicate nonce.
 It does **not** validate the TSA certificate chain/revocation, EU LOTL/national
@@ -65,6 +81,12 @@ timeStamping EKU PASS. TimeStampResp length: 2513 bytes.
 TSA signer certificate SHA-256:
 `CDA5253F30385CE0F7067D2FB51A1726C3DB5F73A02A0EEDE24CE868CD9497D4`.
 Token policy OID: `1.3.6.1.4.1.59085.1.1`.
+
+A separate externally generated TimeStampReq `.tsq` was sent and its
+cryptographically verified TimeStampResp `.tsr` was saved with `CreateNew`.
+The transport output SHA-256 matched a fresh hash of the stored response:
+`EXTERNAL_TSQ_INTEGRATION_PASS`, 2512 bytes. Ephemeral request/response files
+were removed after verification.
 
 Not checked: chain/trust-list qualification, revocation, PAdES-B-T, B-LT, B-LTA.
 
