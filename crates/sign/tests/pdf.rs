@@ -1344,6 +1344,42 @@ fn a_timestamp_token_may_sign_with_a_different_digest_than_its_imprint() {
     assert_eq!((token.digest, token.imprint, token.gen_time), (pdfcraft_sign::DigestAlg::Sha1, imprint, time));
 }
 
+#[test]
+fn rfc3161_response_requires_exact_requested_nonce_and_policy() {
+    let tsa = pkcs12::open(&data("rsa-aes.p12"), "test").unwrap();
+    let hash = pdfcraft_sign::DigestAlg::Sha256.digest(&[b"document"]);
+    let mut query = pdfcraft_sign::timestamp::TimestampQuery::new(pdfcraft_sign::DigestAlg::Sha256, hash).unwrap();
+    query.nonce = Some(0x1234_5678);
+    query.policy = Some("1.2.3.4".into());
+    let time = Time { year: 2026, month: 10, day: 19, hour: 12, minute: 0, second: 0 };
+    let response =
+        pdfcraft_sign::timestamp::respond(&tsa.key, &tsa.certificate, &tsa.chain, pdfcraft_sign::DigestAlg::Sha256, &query, "1.2.3.4", time, 17)
+            .unwrap();
+    let token = pdfcraft_sign::timestamp::parse_response(&response, &query).unwrap();
+    assert_eq!(token.nonce, query.nonce);
+    assert_eq!(token.policy, query.policy.clone().unwrap());
+
+    let mut wrong_nonce = query.clone();
+    wrong_nonce.nonce = Some(0x1234_5679);
+    assert!(pdfcraft_sign::timestamp::parse_response(&response, &wrong_nonce).is_err());
+
+    let mut missing_nonce = query.clone();
+    missing_nonce.nonce = Some(0);
+    assert!(pdfcraft_sign::timestamp::parse_response(&response, &missing_nonce).is_err());
+
+    let mut wrong_policy = query.clone();
+    wrong_policy.policy = Some("1.2.3.5".into());
+    assert!(pdfcraft_sign::timestamp::parse_response(&response, &wrong_policy).is_err());
+
+    let no_nonce =
+        pdfcraft_sign::timestamp::TimestampQuery::new(pdfcraft_sign::DigestAlg::Sha256, pdfcraft_sign::DigestAlg::Sha256.digest(&[b"document"]))
+            .unwrap();
+    let no_nonce_response =
+        pdfcraft_sign::timestamp::respond(&tsa.key, &tsa.certificate, &tsa.chain, pdfcraft_sign::DigestAlg::Sha256, &no_nonce, "1.2.3.4", time, 18)
+            .unwrap();
+    assert_eq!(pdfcraft_sign::timestamp::parse_response(&no_nonce_response, &no_nonce).unwrap().nonce, None);
+}
+
 #[cfg(windows)]
 #[test]
 fn windows_store_enumeration_and_missing_identity() {
