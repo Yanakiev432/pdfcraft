@@ -361,12 +361,18 @@ impl OcspResponse {
             return RevocationStatus::Unknown;
         }
         // Find the SingleResponse for this certificate: the CertID hashes must recompute.
-        let single = self.responses.iter().find(|r| {
+        let mut matches = self.responses.iter().filter(|r| {
             let name_hash = r.cert_id.hash_alg.digest(&[&cert.issuer.raw]);
             let key_hash = r.cert_id.hash_alg.digest(&[&issuer.public_key.key_bits()]);
             name_hash == r.cert_id.issuer_name_hash && key_hash == r.cert_id.issuer_key_hash && strip(&r.cert_id.serial) == strip(&cert.serial)
         });
-        let Some(single) = single else { return RevocationStatus::Unknown };
+        let Some(single) = matches.next() else { return RevocationStatus::Unknown };
+        // Contradictory or repeated SingleResponses must not be resolved by
+        // their order in a signed OCSP response. Never accept the first Good
+        // if the responder also included a second status for the same CertID.
+        if matches.next().is_some() {
+            return RevocationStatus::Unknown;
+        }
         if !valid_in_window(single.this_update, single.next_update, at) {
             return RevocationStatus::Unknown;
         }

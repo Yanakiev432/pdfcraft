@@ -295,22 +295,30 @@ fn crl_scope_and_critical_extensions_fail_closed() {
 
 /// A self-issued OCSP response from `issuer` answering for its own serial.
 fn ocsp(issuer: &pkcs12::DigitalId, status: RevocationStatus, this: Time, next: Time) -> Vec<u8> {
+    ocsp_with_statuses(issuer, &[status], this, next)
+}
+
+fn ocsp_with_statuses(issuer: &pkcs12::DigitalId, statuses: &[RevocationStatus], this: Time, next: Time) -> Vec<u8> {
     let cert_id = der::seq(&[
         &DigestAlg::Sha1.algorithm(),
         &der::octets(&DigestAlg::Sha1.digest(&[&issuer.certificate.issuer.raw])),
         &der::octets(&DigestAlg::Sha1.digest(&[&issuer.certificate.public_key.key_bits()])),
         &der::uint(&issuer.certificate.serial),
     ]);
-    // RFC 6960's real encodings: good [0] IMPLICIT NULL, revoked [1] IMPLICIT RevokedInfo,
-    // unknown [2] IMPLICIT; nextUpdate [0] EXPLICIT GeneralizedTime.
-    let status = match status {
-        RevocationStatus::Good => der::tlv(tag::ctx_prim(0), &[]),
-        RevocationStatus::Revoked { at } => der::tlv(tag::ctx(1), &at.encode()),
-        RevocationStatus::Unknown => der::tlv(tag::ctx_prim(2), &[]),
-    };
-    let single = der::seq(&[&cert_id, &status, &this.encode(), &der::tlv(tag::ctx(0), &next.encode())]);
+    let responses: Vec<Vec<u8>> = statuses
+        .iter()
+        .map(|status| {
+            let status = match status {
+                RevocationStatus::Good => der::tlv(tag::ctx_prim(0), &[]),
+                RevocationStatus::Revoked { at } => der::tlv(tag::ctx(1), &at.encode()),
+                RevocationStatus::Unknown => der::tlv(tag::ctx_prim(2), &[]),
+            };
+            der::seq(&[&cert_id, &status, &this.encode(), &der::tlv(tag::ctx(0), &next.encode())])
+        })
+        .collect();
+    let response_refs: Vec<&[u8]> = responses.iter().map(Vec::as_slice).collect();
     let responder_id = der::tlv(tag::ctx(1), &issuer.certificate.subject.raw);
-    let tbs = der::seq(&[&responder_id, &this.encode(), &der::seq(&[&single])]);
+    let tbs = der::seq(&[&responder_id, &this.encode(), &der::seq(&response_refs)]);
     let alg = issuer.key.signature_algorithm(DigestAlg::Sha256);
     let sig = issuer.key.sign(DigestAlg::Sha256, &tbs).unwrap();
     let basic = der::seq(&[&tbs, &alg, &der::bit_string(&sig)]);
@@ -411,6 +419,12 @@ fn ocsp_responses_verify_and_match_the_certificate() {
         revoked.check(issuer, issuer, at),
         RevocationStatus::Revoked { at: Time { year: 2026, month: 6, day: 2, hour: 9, minute: 0, second: 0 } }
     );
+    // A signed response with multiple statuses for the same CertID is
+    // ambiguous: a Good first entry must never hide a revoked second entry.
+    let duplicated = OcspResponse::parse(&ocsp_with_statuses(&id, &[RevocationStatus::Good, RevocationStatus::Revoked { at }], this, next)).unwrap();
+    assert_eq!(duplicated.check(issuer, issuer, at), RevocationStatus::Unknown);
+    let twice_good = OcspResponse::parse(&ocsp_with_statuses(&id, &[RevocationStatus::Good, RevocationStatus::Good], this, next)).unwrap();
+    assert_eq!(twice_good.check(issuer, issuer, at), RevocationStatus::Unknown);
     // Outside the window: unknown.
     let later = Time { year: 2026, month: 8, day: 1, hour: 0, minute: 0, second: 0 };
     assert_eq!(good.check(issuer, issuer, later), RevocationStatus::Unknown);
