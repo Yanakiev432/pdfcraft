@@ -279,7 +279,7 @@ fn ocsp(issuer: &pkcs12::DigitalId, status: RevocationStatus, this: Time, next: 
     let sig = issuer.key.sign(DigestAlg::Sha256, &tbs).unwrap();
     let basic = der::seq(&[&tbs, &alg, &der::bit_string(&sig)]);
     let basic_type = der::oid("1.3.6.1.5.5.7.48.1.1");
-    der::seq(&[&der::int(0), &der::explicit(0, &der::seq(&[&basic_type, &der::octets(&basic)]))])
+    der::seq(&[&der::tlv(tag::ENUMERATED, &[0]), &der::explicit(0, &der::seq(&[&basic_type, &der::octets(&basic)]))])
 }
 
 fn mid_june() -> Time {
@@ -295,6 +295,9 @@ fn crls_verify_and_report_revocation() {
     // Not on the list: good.
     let clean = CertificateList::parse(&crl(&id, None, this, next)).unwrap();
     assert_eq!(clean.check(issuer, issuer, at), RevocationStatus::Good);
+    let mut non_crl_signer = issuer.clone();
+    non_crl_signer.key_usage = Some(1 << 5); // keyCertSign but not cRLSign
+    assert_eq!(clean.check(issuer, &non_crl_signer, at), RevocationStatus::Unknown);
     // On the list: revoked with its date.
     let revoked =
         CertificateList::parse(&crl(&id, Some((&issuer.serial, Time { year: 2026, month: 6, day: 1, hour: 8, minute: 0, second: 0 })), this, next))
@@ -380,8 +383,11 @@ fn ocsp_responses_verify_and_match_the_certificate() {
     let wrong_key = OcspResponse::parse(&ocsp(&other, RevocationStatus::Good, this, next)).unwrap();
     assert_eq!(wrong_key.check(issuer, issuer, at), RevocationStatus::Unknown);
     // An error response is rejected at parse time.
-    let error = der::seq(&[&der::int(6)]);
+    let error = der::seq(&[&der::tlv(tag::ENUMERATED, &[6])]);
     assert!(OcspResponse::parse(&error).is_err());
+    // An INTEGER is not an RFC 6960 status, even if its value is 0.
+    let wrong_tag = der::seq(&[&der::int(0)]);
+    assert!(OcspResponse::parse(&wrong_tag).is_err());
 }
 
 // ── tolerance for the encodings found in old and unusual signers ───────────────────────────────

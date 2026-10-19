@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - feature/pades-lt-evidence-gate-20261019
+      - feature/pades-lt-ocsp-crl-20261019
   workflow_dispatch:
 
 permissions:

@@ -16,6 +16,7 @@ use crate::SignError;
 pub mod tag {
     pub const BOOLEAN: u8 = 0x01;
     pub const INTEGER: u8 = 0x02;
+    pub const ENUMERATED: u8 = 0x0A;
     pub const BIT_STRING: u8 = 0x03;
     pub const OCTET_STRING: u8 = 0x04;
     /// An OCTET STRING split into segments (BER only, X.690 §8.21); see [`super::Tlv::octets`].

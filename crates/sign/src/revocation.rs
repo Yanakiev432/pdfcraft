@@ -107,6 +107,11 @@ impl CertificateList {
         if self.issuer_raw != issuer.subject.raw || issuer.subject.raw != cert.issuer.raw {
             return RevocationStatus::Unknown;
         }
+        // RFC 5280 keyUsage bit 6: a CA may sign CRLs only if cRLSign is
+        // granted whenever its keyUsage extension is present.
+        if issuer.key_usage.is_some_and(|usage| usage & (1 << 6) == 0) {
+            return RevocationStatus::Unknown;
+        }
         if !verify_signature(&self.tbs, &self.sig_alg, &self.signature, &issuer.public_key) {
             return RevocationStatus::Unknown;
         }
@@ -181,7 +186,13 @@ impl OcspResponse {
             return Err(bad("OCSP response is empty or exceeds the 2 MiB limit"));
         }
         let resp = Tlv::parse_all(bytes)?.expect(tag::SEQUENCE, "OCSPResponse")?.children()?;
-        let status = resp.first().ok_or_else(|| bad("missing responseStatus"))?.u64()?;
+        // RFC 6960 responseStatus is ENUMERATED, not INTEGER. The old
+        // test fixture used INTEGER and hid rejection of actual QTSP replies.
+        let status_field = resp.first().ok_or_else(|| bad("missing responseStatus"))?;
+        if status_field.tag != tag::ENUMERATED || status_field.value.len() != 1 || status_field.value[0] > 6 {
+            return Err(bad("OCSP responseStatus is not an RFC 6960 ENUMERATED"));
+        }
+        let status = u64::from(status_field.value[0]);
         if status != 0 {
             return Err(bad(format!("responder reported an error (status {status})")));
         }
@@ -199,7 +210,9 @@ impl OcspResponse {
         let mut responder_cert = None;
         for t in it {
             if t.tag == tag::ctx(0) {
-                for c in t.children()? {
+                // BasicOCSPResponse.certs [0] EXPLICIT SEQUENCE OF Certificate.
+                // The first child is the SEQUENCE OF, not a certificate.
+                for c in t.inner()?.children()? {
                     if c.tag == tag::SEQUENCE
                         && let Ok(cert) = Certificate::parse(c.raw)
                     {
@@ -279,6 +292,11 @@ impl OcspResponse {
         let Some(responder) = responder else { return RevocationStatus::Unknown };
         // A delegated responder must carry the OCSP-signing EKU and be issued by the issuer.
         if responder.subject.raw != issuer.subject.raw {
+            // A delegated responder must be authorized at the *evaluation*
+            // time and, if keyUsage is present, permit digital signatures.
+            if !responder.valid_at(at) || responder.key_usage.is_some_and(|usage| usage & 1 == 0) {
+                return RevocationStatus::Unknown;
+            }
             if responder.issuer.raw != issuer.subject.raw || !responder.signed_by(&issuer.public_key) {
                 return RevocationStatus::Unknown;
             }
