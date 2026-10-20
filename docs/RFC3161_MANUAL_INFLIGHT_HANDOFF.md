@@ -32,9 +32,10 @@ toolchain, from the repo root:
 
 ```powershell
 New-Item -ItemType Directory -Force -Path '.\tmp\manual-tsa-demo' | Out-Null
+python .\tools\make_rfc3161_fixture.py --out '.\tmp\manual-unsigned.pdf'
 $env:PDFCRAFT_TEST_PKCS12_PASSWORD = 'test'
 cargo run --locked -p pdfcraft-sign --example rfc3161_manual_pades_bt -- `
-  '.\crates\sign\tests\data\openssl-signed.pdf' `
+  '.\tmp\manual-unsigned.pdf' `
   '.\tmp\manual-signed.pdf' '.\crates\sign\tests\data\rsa-aes.p12' `
   '.\tmp\manual-tsa-demo' 'example20261020a' 'D:20261020090000Z' 900
 Remove-Item Env:PDFCRAFT_TEST_PKCS12_PASSWORD
