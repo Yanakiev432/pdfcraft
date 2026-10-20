@@ -1,0 +1,77 @@
+name: Immutable privileged release workflow gate
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/release.yml'
+      - 'packaging/windows/assert-trusted-release.ps1'
+      - '.github/workflows/release-immutable-gate.yml'
+  push:
+    branches:
+      - feature/release-workflow-immutable-ref-20261020
+    paths:
+      - '.github/workflows/release.yml'
+      - '.github/workflows/release-immutable-gate.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  reject-mutable-external-workflow:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Prevent moving ref from receiving signing credentials
+        run: |
+          set -euo pipefail
+          grep -F 'uses: storytold/craft-common-actions/.github/workflows/release.yml@d7bf8f06e138618890d0ebe8a84a18b010bf3f66' .github/workflows/release.yml
+          if grep -Fq '.github/workflows/release.yml@main' .github/workflows/release.yml; then
+            echo 'MUTABLE_RELEASE_REF_NO_GO'
+            exit 1
+          fi
+          echo 'EXTERNAL_RELEASE_REF_PINNED=PASS'
+      - name: Public release stays disabled until signed output is independently approved
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          text = Path(".github/workflows/release.yml").read_text()
+          assert "needs: fail-closed-release-preflight" in text, "Release job must depend on denying preflight"
+          assert "PUBLIC_RELEASE_NO_GO" in text and "exit 1" in text, "Release preflight must explicitly deny until reviewed"
+          print("UNAPPROVED_PUBLIC_RELEASE_DISABLED=PASS")
+          PY
+  reject-unapproved-publisher:
+    runs-on: windows-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Release must explicitly match expected certificate SHA256
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $gate = Join-Path $PWD 'packaging/windows/assert-trusted-release.ps1'
+          $dummy = Join-Path $env:RUNNER_TEMP 'unsigned.pdfcraft.exe'
+          [IO.File]::WriteAllBytes($dummy, [byte[]](0x4d, 0x5a, 0, 0))
+          Remove-Item Env:CRAFT_RELEASE_PUBLISHER_SHA256 -ErrorAction SilentlyContinue
+          $rejected = $false
+          try { & $gate -Paths @($dummy) | Out-Null }
+          catch { $rejected = $_.Exception.Message.Contains('approved publisher certificate SHA256') }
+          if (-not $rejected) { throw 'FAIL_OPEN: unpinned release publisher' }
+          $env:CRAFT_RELEASE_PUBLISHER_SHA256 = '0000000000000000000000000000000000000000000000000000000000000000'
+          $rejected = $false
+          try { & $gate -Paths @($dummy) | Out-Null }
+          catch { $rejected = $true }
+          if (-not $rejected) { throw 'FAIL_OPEN: unsigned EXE' }
+          $osExe = Join-Path $env:WINDIR 'System32\\WindowsPowerShell\\v1.0\\powershell.exe'
+          if ((Get-AuthenticodeSignature -LiteralPath $osExe).Status -eq 'Valid') {
+            $rejected = $false
+            try { & $gate -Paths @($osExe) | Out-Null }
+            catch { $rejected = $_.Exception.Message.Contains('not the explicitly approved signer') }
+            if (-not $rejected) { throw 'FAIL_OPEN: valid but unapproved external publisher' }
+            Write-Host 'UNAPPROVED_TRUSTED_SIGNER_REJECTED=PASS'
+          } else {
+            Write-Host 'EXTERNAL_VALID_SIGNER_TEST_SKIPPED=OS_SIGNATURE_UNAVAILABLE'
+          }
+          Write-Host 'AUTHENTICODE_PUBLISHER_PIN_REQUIRED=PASS'
