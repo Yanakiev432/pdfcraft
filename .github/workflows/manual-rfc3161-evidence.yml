@@ -1,0 +1,38 @@
+name: Manual RFC3161 TSQ-TSR offline checks
+on:
+  pull_request:
+    paths:
+      - 'tools/verify_rfc3161_manual_reply.py'
+      - 'tools/test_verify_rfc3161_manual_reply.py'
+      - '.github/workflows/manual-rfc3161-evidence.yml'
+  push:
+    branches:
+      - feature/rfc3161-manual-evidence-tests-20261020
+    paths:
+      - 'tools/verify_rfc3161_manual_reply.py'
+      - 'tools/test_verify_rfc3161_manual_reply.py'
+      - '.github/workflows/manual-rfc3161-evidence.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  offline-crypto-and-negative-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Install isolated ASN1 parser
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m venv .venv
+          .venv/bin/python -m pip install --no-deps --disable-pip-version-check 'asn1crypto==1.5.1'
+      - name: Run standalone offline synthetic CMS acceptance
+        shell: bash
+        run: |
+          set -euo pipefail
+          openssl version
+          .venv/bin/python tools/test_verify_rfc3161_manual_reply.py
+          echo 'OFFLINE_TSQ_TSR_PAIR_TESTS=PASS; QTSA=NOT_CHECKED; PAdES=NOT_CHECKED'
