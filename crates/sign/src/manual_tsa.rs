@@ -180,7 +180,9 @@ mod tests {
         let tsq = handoff.tsq_path();
         let marker = handoff.ready_path();
         let producer = thread::spawn(move || {
+            let started = Instant::now();
             while !tsq.exists() {
+                assert!(started.elapsed() < Duration::from_secs(4));
                 thread::sleep(Duration::from_millis(20));
             }
             fs::write(marker, b"").unwrap();
