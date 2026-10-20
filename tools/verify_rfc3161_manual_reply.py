@@ -63,8 +63,13 @@ def verify_pair(tsq_der, tsr_der, signature_sha256=None):
         require(token.native is not None and token["content_type"].native == "signed_data", "Missing CMS token")
         signed = token["content"]
         require(len(signed["signer_infos"]) == 1, "Expected one CMS signer")
+        require(
+            signed["encap_content_info"]["content_type"].dotted == "1.2.840.113549.1.9.16.1.4",
+            "TSA CMS encapsulated content must be RFC3161 TSTInfo",
+        )
         actual = signed["encap_content_info"]["content"].contents
         info = tsp.TSTInfo.load(actual, strict=True)
+        require(info["version"].native == "v1", "TSTInfo version must be v1")
         mi = info["message_imprint"]
         require(mi["hash_algorithm"]["algorithm"].dotted == SHA256_OID, "TSA hash algorithm mismatch")
         require(mi["hashed_message"].native == digest, "TSA digest mismatch")
