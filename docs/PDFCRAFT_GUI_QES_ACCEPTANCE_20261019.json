@@ -1,0 +1,50 @@
+{
+  "schema": "pdfcraft.gui-qes-acceptance.v1",
+  "observed_local_date": "2026-10-19",
+  "provenance": {
+    "source": "User-submitted photograph in active ChatGPT conversation; private image is not committed to repository",
+    "photo_sha256": "b31556c77e6acf2d2acb10413fe3964cdf4fff45202dd78bcee08a4ade76d480",
+    "photo_retained_in_repository": false
+  },
+  "build": {
+    "feature_commit": "713d0d1",
+    "runtime_version": "pdfcraft 0.8.0",
+    "windows_build_target": "x86_64-pc-windows-gnu",
+    "portable_executable": "%LOCALAPPDATA%\\Programs\\PdfCraft-QES-713d0d1\\pdfcraft.exe",
+    "sha256": "2AA3A020B792A670EE758B533F65B48D3A2155E78807287F48762E81749370A7",
+    "authenticode": "NotSigned",
+    "system_program_files_install_replaced": false
+  },
+  "observed_ui": {
+    "pdf_opened": true,
+    "signature_count_displayed": 1,
+    "native_validation_panel_text": "Signature is valid",
+    "independent_local_dss_panel_text": "Independent EU DSS: QES PASS. Native validation is separate.",
+    "button_visible": "Check QES with local EU DSS",
+    "gui_qes_result_visible": true,
+    "button_click_observed": false
+  },
+  "independent_validation": {
+    "method": "local EU DSS 6.5.1 via repository tools/eidas_dss_local_verify.py",
+    "reported_indication": "TOTAL_PASSED",
+    "reported_signature_level": "QESig",
+    "signed_pdf_signature_format": "PAdES-BASELINE-B",
+    "qualified_timestamp_proven": false
+  },
+  "scope": {
+    "accepted": [
+      "GUI opens actual signed PDF and displays native validity",
+      "GUI visibly displays independent DSS QES PASS",
+      "Windows GUI candidate launches",
+      "B-Trust already-signed test PDF independently validates"
+    ],
+    "not_accepted": [
+      "Authenticated UI button invocation (UI event not observed in still photo)",
+      "Production trusted Authenticode signing",
+      "PAdES B-T/B-LT/B-LTA issuance",
+      "Long-term preservation and trusted timestamp authority",
+      "Official multi-provider interoperability"
+    ]
+  },
+  "note": "Visual acceptance of a displayed verdict is not the same as independently attesting how that verdict was triggered. Do not overstate test scope."
+}

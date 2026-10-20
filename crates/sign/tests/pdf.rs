@@ -376,6 +376,55 @@ impl TimestampAuthority for TestTsa {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn manual_handoff_preserves_one_cms_signature_and_embeds_timestamp() {
+    let mut entropy = [0_u8; 16];
+    getrandom::fill(&mut entropy).unwrap();
+    let nonce = entropy.iter().map(|b| format!("{b:02x}")).collect::<String>();
+    let directory = std::env::temp_dir().join(format!("pdfcraft-manual-full-sig-{nonce}"));
+    std::fs::create_dir(&directory).unwrap();
+    let handoff = pdfcraft_sign::ManualTsaHandoff::new(&directory, "samecms1", std::time::Duration::from_secs(10)).unwrap();
+    let input = handoff.tsq_path();
+    let output = handoff.tsr_path();
+    let marker = handoff.ready_path();
+    let producer = std::thread::spawn(move || {
+        let started = std::time::Instant::now();
+        let parsed = loop {
+            if let Ok(bytes) = std::fs::read(&input)
+                && let Ok(q) = pdfcraft_sign::timestamp::parse_request(&bytes)
+            {
+                break q;
+            }
+            assert!(started.elapsed() < std::time::Duration::from_secs(8));
+            std::thread::sleep(std::time::Duration::from_millis(40));
+        };
+        let tsa = pkcs12::open(&data("rsa-aes.p12"), "test").unwrap();
+        let reply = pdfcraft_sign::timestamp::respond(
+            &tsa.key,
+            &tsa.certificate,
+            &tsa.chain,
+            pdfcraft_sign::DigestAlg::Sha256,
+            &parsed,
+            "1.2.3.4",
+            Time { year: 2026, month: 10, day: 20, hour: 9, minute: 0, second: 0 },
+            17,
+        )
+        .unwrap();
+        std::fs::write(&output, reply).unwrap();
+        std::fs::write(&marker, b"").unwrap();
+    });
+    let signer = pkcs12::open(&data("ec-p256.p12"), "test").unwrap();
+    let signed = pdfcraft_sign::sign_with_timestamp(&open(&fixture()), &signer, &opts(), &handoff).unwrap();
+    producer.join().unwrap();
+    let found = signatures(&open(&signed), &signed, &TrustStore::default());
+    let sig = found.into_iter().find(|s| s.signed && !s.doc_timestamp).unwrap();
+    assert!(sig.timestamp, "the original CMS signature value is timestamped");
+    assert_eq!(sig.signed_len, signed.len(), "the entire latest PDF revision must be signed");
+    assert_ne!(sig.status, Status::Invalid, "cryptographic signature must be intact");
+    std::fs::remove_dir_all(directory).unwrap();
+}
+
 #[test]
 fn signing_with_a_timestamp_embeds_a_verified_rfc3161_token() {
     let id = pkcs12::open(&data("ec-p256.p12"), "test").unwrap();
@@ -498,6 +547,76 @@ fn cached_discovery_still_validates_current_timestamp_bytes_ranges_and_trust() {
 }
 
 #[test]
+fn dss_structural_gate_requires_cryptographically_authenticated_revocation() {
+    use pdfcraft_sign::dss::Evidence;
+    use pdfcraft_sign::dss_checked::embed_checked;
+
+    // Synthetic test-only CA identity, not a public trusted certificate.
+    let id = pkcs12::open(&data("lt-ca-test.p12"), "test").unwrap();
+    assert!(id.certificate.may_issue());
+    let at = Time { year: 2026, month: 10, day: 20, hour: 12, minute: 0, second: 0 };
+    assert!(id.certificate.valid_at(at));
+    let options = SignOptions { date: "D:20261020120000Z".into(), ..opts() };
+    let original = pdfcraft_sign::sign(&open(&fixture()), &id, &options).unwrap();
+    let algorithm = id.key.signature_algorithm(pdfcraft_sign::DigestAlg::Sha256);
+    let make_crl = |revoke: bool, future: bool, different_key: bool| {
+        let this = if future {
+            Time { year: 2026, month: 11, day: 1, hour: 0, minute: 0, second: 0 }
+        } else {
+            Time { year: 2026, month: 10, day: 19, hour: 16, minute: 0, second: 0 }
+        };
+        let next = Time { year: 2027, month: 10, day: 19, hour: 16, minute: 0, second: 0 };
+        let mut fields = vec![der::int(1), algorithm.clone(), id.certificate.subject.raw.clone(), this.encode(), next.encode()];
+        if revoke {
+            let revocation = Time { year: 2026, month: 10, day: 19, hour: 17, minute: 0, second: 0 };
+            fields.push(der::seq(&[&der::seq(&[&der::uint(&id.certificate.serial), &revocation.encode()])]));
+        }
+        let tbs = der::seq(&fields.iter().map(Vec::as_slice).collect::<Vec<_>>());
+        let sig = if different_key {
+            let other = pkcs12::open(&data("rsa-aes.p12"), "test").unwrap();
+            other.key.sign(pdfcraft_sign::DigestAlg::Sha256, &tbs).unwrap()
+        } else {
+            id.key.sign(pdfcraft_sign::DigestAlg::Sha256, &tbs).unwrap()
+        };
+        der::seq(&[&tbs, &algorithm, &der::bit_string(&sig)])
+    };
+
+    let valid = Evidence { certs: vec![id.certificate.raw.clone()], ocsps: vec![], crls: vec![make_crl(false, false, false)] };
+    let embedded = embed_checked(&original, &valid, &id.certificate, at).unwrap();
+    assert!(embedded.starts_with(&original), "DSS must be incremental");
+    let d = open(&embedded);
+    let catalog_object = d.get(d.root().unwrap());
+    let catalog = catalog_object.as_dict().unwrap();
+    assert!(catalog.contains(b"DSS"));
+    let infos = signatures(&d, &embedded, &TrustStore { certs: vec![id.certificate.clone()] });
+    assert_eq!(infos.iter().filter(|s| s.signed).count(), 1);
+    assert!(infos.iter().any(|s| s.signed && s.status == Status::Valid));
+
+    let cases = [
+        ("missing revocation", Evidence { certs: valid.certs.clone(), ..Evidence::default() }),
+        ("synthetic revocation", Evidence { certs: valid.certs.clone(), crls: vec![b"synthetic crl".to_vec()], ..Evidence::default() }),
+        ("revoked", Evidence { certs: valid.certs.clone(), crls: vec![make_crl(true, false, false)], ..Evidence::default() }),
+        ("future CRL", Evidence { certs: valid.certs.clone(), crls: vec![make_crl(false, true, false)], ..Evidence::default() }),
+        ("wrong signer key", Evidence { certs: valid.certs.clone(), crls: vec![make_crl(false, false, true)], ..Evidence::default() }),
+        ("extra invalid OCSP", Evidence { certs: valid.certs.clone(), ocsps: vec![b"synthetic ocsp".to_vec()], crls: valid.crls.clone() }),
+        (
+            "missing signer DER",
+            Evidence { certs: vec![pkcs12::open(&data("rsa-aes.p12"), "test").unwrap().certificate.raw], crls: valid.crls.clone(), ocsps: vec![] },
+        ),
+    ];
+    for (label, evidence) in cases {
+        assert!(embed_checked(&original, &evidence, &id.certificate, at).is_err(), "{label}");
+    }
+    let mut tampered = original.clone();
+    let position = tampered.windows(13).position(|b| b == b"Contract text").unwrap();
+    tampered[position] = b'X';
+    assert!(embed_checked(&tampered, &valid, &id.certificate, at).is_err(), "modified signature must be rejected");
+    assert!(embed_checked(&embedded, &valid, &id.certificate, at).is_err(), "previous DSS requires separate verification");
+    let other_issuer = pkcs12::open(&data("rsa-aes.p12"), "test").unwrap();
+    assert!(embed_checked(&original, &valid, &other_issuer.certificate, at).is_err(), "untrusted issuer substitution");
+}
+
+#[test]
 fn embedding_ltv_evidence_adds_a_dss_and_keeps_signatures_valid() {
     use pdfcraft_sign::dss::{self, Evidence};
     let id = pkcs12::open(&data("ec-p256.p12"), "test").unwrap();
@@ -531,7 +650,7 @@ fn embedding_ltv_evidence_adds_a_dss_and_keeps_signatures_valid() {
 }
 
 #[test]
-fn sign_then_ltv_then_timestamp_makes_a_b_lta_file() {
+fn sign_then_unverified_dss_then_test_timestamp_serializes_b_lta_structure_only() {
     use pdfcraft_sign::dss::{self, Evidence};
     let id = pkcs12::open(&data("ec-p256.p12"), "test").unwrap();
     let tsa = TestTsa {
@@ -1344,6 +1463,42 @@ fn a_timestamp_token_may_sign_with_a_different_digest_than_its_imprint() {
     assert_eq!((token.digest, token.imprint, token.gen_time), (pdfcraft_sign::DigestAlg::Sha1, imprint, time));
 }
 
+#[test]
+fn rfc3161_response_requires_exact_requested_nonce_and_policy() {
+    let tsa = pkcs12::open(&data("rsa-aes.p12"), "test").unwrap();
+    let hash = pdfcraft_sign::DigestAlg::Sha256.digest(&[b"document"]);
+    let mut query = pdfcraft_sign::timestamp::TimestampQuery::new(pdfcraft_sign::DigestAlg::Sha256, hash).unwrap();
+    query.nonce = Some(0x1234_5678);
+    query.policy = Some("1.2.3.4".into());
+    let time = Time { year: 2026, month: 10, day: 19, hour: 12, minute: 0, second: 0 };
+    let response =
+        pdfcraft_sign::timestamp::respond(&tsa.key, &tsa.certificate, &tsa.chain, pdfcraft_sign::DigestAlg::Sha256, &query, "1.2.3.4", time, 17)
+            .unwrap();
+    let token = pdfcraft_sign::timestamp::parse_response(&response, &query).unwrap();
+    assert_eq!(token.nonce, query.nonce);
+    assert_eq!(token.policy, query.policy.clone().unwrap());
+
+    let mut wrong_nonce = query.clone();
+    wrong_nonce.nonce = Some(0x1234_5679);
+    assert!(pdfcraft_sign::timestamp::parse_response(&response, &wrong_nonce).is_err());
+
+    let mut missing_nonce = query.clone();
+    missing_nonce.nonce = Some(0);
+    assert!(pdfcraft_sign::timestamp::parse_response(&response, &missing_nonce).is_err());
+
+    let mut wrong_policy = query.clone();
+    wrong_policy.policy = Some("1.2.3.5".into());
+    assert!(pdfcraft_sign::timestamp::parse_response(&response, &wrong_policy).is_err());
+
+    let no_nonce =
+        pdfcraft_sign::timestamp::TimestampQuery::new(pdfcraft_sign::DigestAlg::Sha256, pdfcraft_sign::DigestAlg::Sha256.digest(&[b"document"]))
+            .unwrap();
+    let no_nonce_response =
+        pdfcraft_sign::timestamp::respond(&tsa.key, &tsa.certificate, &tsa.chain, pdfcraft_sign::DigestAlg::Sha256, &no_nonce, "1.2.3.4", time, 18)
+            .unwrap();
+    assert_eq!(pdfcraft_sign::timestamp::parse_response(&no_nonce_response, &no_nonce).unwrap().nonce, None);
+}
+
 #[cfg(windows)]
 #[test]
 fn windows_store_enumeration_and_missing_identity() {
@@ -1386,6 +1541,31 @@ impl Drop for Certificates {
     }
 }
 
+/// One explicitly authorized hardware signing attempt. No PIN is handled by PdfCraft.
+/// Run only in an interactive user session where the vendor PIN UI is visible.
+#[cfg(windows)]
+#[test]
+#[ignore = "real hardware signature: requires explicit authorization and interactive vendor PIN UI"]
+fn opt_in_real_windows_token_sign_once() {
+    let reference = std::env::var("PDFCRAFT_REAL_SIGN_REFERENCE").expect("selected windows:<sha256> reference");
+    assert!(reference.starts_with("windows:") && reference.len() == 72, "require explicit windows SHA-256 reference");
+    let output = std::env::var("PDFCRAFT_REAL_SIGN_OUTPUT").expect("explicit output PDF path");
+    let target = std::path::Path::new(&output);
+    assert!(!target.exists(), "refuse to overwrite existing output");
+    let id = pdfcraft_sign::windows::find(&reference).expect("selected identity");
+    let options = SignOptions {
+        field: Some("Approval".into()),
+        reason: Some("PdfCraft hardware signing integration test".into()),
+        date: format!("D:{}Z", std::env::var("PDFCRAFT_REAL_SIGN_UTC").expect("explicit UTC signing date")),
+        ..SignOptions::default()
+    };
+    let signed = pdfcraft_sign::sign(&open(&fixture()), &id, &options).expect("one signing attempt");
+    let validation = signatures(&open(&signed), &signed, &TrustStore { certs: vec![id.certificate.clone()] });
+    let signature = validation.iter().find(|s| s.signed).expect("signed field");
+    assert_eq!(signature.status, Status::Valid, "{:?}", signature.details);
+    std::fs::write(target, signed).expect("write signed test PDF");
+    println!("signed_test_pdf={} cryptographic_validation=valid", target.display());
+}
 /// Uses only newly created software-backed CNG keys, removed even when signing fails.
 #[cfg(windows)]
 #[test]

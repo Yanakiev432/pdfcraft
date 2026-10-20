@@ -91,6 +91,13 @@ fn issuers(context: &CertContext, certificate: &Certificate) -> Vec<Certificate>
     chain.iter().filter(|der| **der != certificate.raw).filter_map(|der| Certificate::parse(der).ok()).collect()
 }
 
+/// Load Windows trusted root certificates (not Personal/CA certificates) for PDF validation.
+/// The OS store is authoritative; no signer certificate is trusted merely for being present.
+pub fn trusted_roots() -> Result<Vec<Certificate>, SignError> {
+    let roots = craft_signing_core::windows_trust::trusted_root_der().map_err(|e| SignError::Crypto(format!("Windows trust store: {e}")))?;
+    Ok(roots.into_iter().filter_map(|root| Certificate::parse(&root.der).ok()).collect())
+}
+
 /// List usable RSA, P-256 and P-384 CNG identities in Current User > Personal
 /// (the `ids` of [`list`]).
 pub fn identities() -> Result<Vec<DigitalId>, SignError> {
@@ -240,6 +247,32 @@ fn describe(e: &CngError) -> String {
 mod tests {
     use super::*;
 
+    /// Opt-in read-only CNG inventory: never requests a PIN or signs.
+    #[test]
+    #[ignore = "requires an interactive Windows certificate store"]
+    fn opt_in_silent_identity_inventory() {
+        let listing = list().expect("silent Windows certificate inventory");
+        println!("usable={} unusable={}", listing.ids.len(), listing.unusable.len());
+        for id in &listing.ids {
+            println!("usable_certificate_ref={}", reference(&id.certificate));
+        }
+        for item in &listing.unusable {
+            println!("unusable_reason={}", item.reason);
+        }
+    }
+    /// Opt-in read-only check for one explicitly selected certificate fingerprint.
+    #[test]
+    #[ignore = "requires a locally selected certificate in Windows CurrentUser My"]
+    fn opt_in_selected_identity_is_usable_without_pin() {
+        let wanted = std::env::var("PDFCRAFT_TEST_WINDOWS_CERT_SHA256").expect("set the SHA-256 certificate fingerprint");
+        assert_eq!(wanted.len(), 64, "fingerprint must be SHA-256 hex");
+        assert!(wanted.bytes().all(|b| b.is_ascii_hexdigit()), "fingerprint must be hex");
+        let listing = list().expect("silent Windows certificate inventory");
+        let selected =
+            listing.ids.iter().find(|id| reference(&id.certificate).strip_prefix("windows:").is_some_and(|hash| hash.eq_ignore_ascii_case(&wanted)));
+        assert!(selected.is_some(), "selected certificate was not usable in silent inventory");
+        println!("selected_identity_usable=true; no PIN requested; no signing");
+    }
     #[test]
     fn errors_are_explained_with_their_code() {
         assert_eq!(

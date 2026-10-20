@@ -78,6 +78,7 @@ mod autoscroll;
 mod bidi;
 pub mod bulk_fields;
 mod dialogs;
+mod dss_local;
 mod edit_text_ui;
 pub use edit_text_ui::CropMode;
 mod editing;
@@ -487,6 +488,7 @@ pub struct PdfCraftApp {
     pub docking: docking::Workspace,
     pub(crate) pending_panel_reveals: Vec<docking::Panel>,
     pub session: Session,
+    user_trusted_certificates: Vec<pdfcraft_engine::sign::Certificate>,
     pub views: Vec<DocView>,
     pub(crate) closed_tabs: Vec<String>,
     /// `None` shows the Home tab.
@@ -653,6 +655,7 @@ pub struct PdfCraftApp {
     pub digital_ids: Vec<DigitalIdEntry>,
     /// Signatures panel: expanded entries (field names).
     pub sig_expanded: Vec<String>,
+    pub(crate) dss_local: dss_local::State,
     /// Accessibility Checker: options, the last check, and rules skipped by hand.
     pub a11y_options: a11y_ui::A11yOptions,
     /// Scan & OCR: the Recognize Text choices, the running job, and (tests) run it inline.
@@ -889,8 +892,18 @@ fn rgb_triple(v: &serde_json::Value) -> Option<[f64; 3]> {
 
 impl PdfCraftApp {
     pub fn new() -> Self {
+        let session = Session::new();
+        #[cfg(target_os = "windows")]
+        let session = {
+            let mut session = session;
+            if let Ok(roots) = pdfcraft_engine::sign::windows::trusted_roots() {
+                session.set_trusted_certificates(roots);
+            }
+            session
+        };
         Self {
-            session: Session::new(),
+            session,
+            user_trusted_certificates: Vec::new(),
             views: Vec::new(),
             closed_tabs: Vec::new(),
             active: None,
@@ -986,6 +999,7 @@ impl PdfCraftApp {
             sign_draft: None,
             digital_ids: Vec::new(),
             sig_expanded: Vec::new(),
+            dss_local: Default::default(),
             a11y_options: a11y_ui::A11yOptions::default(),
             ocr_draft: ocr_ui::OcrDraft::default(),
             ocr_run: None,
@@ -2244,7 +2258,7 @@ impl PdfCraftApp {
 
     /// Serialize the user's persistent state (recent files, theme). Local only.
     pub fn persist(&self) -> String {
-        let trusted: Vec<String> = self.session.trusted_certificates().iter().map(pdfcraft_engine::sign::x509::to_pem).collect();
+        let trusted: Vec<String> = self.user_trusted_certificates.iter().map(pdfcraft_engine::sign::x509::to_pem).collect();
         let mut v = serde_json::json!({
             "docking": self.docking,
             "docking_left_open": self.left_open,
@@ -2296,6 +2310,7 @@ impl PdfCraftApp {
             // macOS Keychain and Windows store identities are read from their OS key stores each time.
             "digital_ids": self.digital_ids.iter().filter(|e| !e.path.starts_with("keychain:") && !e.path.starts_with("windows:")).collect::<Vec<_>>(),
             "trusted": trusted,
+
             "custom_stamps": stamps_ui::encode(&self.custom_stamps),
             "javascript": self.session.javascript(),
             "actions": actions_ui::encode(&self.custom_actions),
@@ -2307,6 +2322,8 @@ impl PdfCraftApp {
         });
         // Set apart: one more key inside the macro above passes serde_json's recursion limit.
         v["redact_prefs"] = self.redact_defaults.to_json();
+        // V2 excludes current Windows Root certificates; legacy trust source is ambiguous.
+        v["trusted_source_version"] = serde_json::Value::from(2);
         // Set outside json! above, which is at serde_json's macro recursion limit.
         v["hide_empty_highlight_hover"] = serde_json::Value::Bool(self.comment_prefs.hide_empty_highlight_hover);
         v.to_string()
@@ -2466,8 +2483,33 @@ impl PdfCraftApp {
             self.session.set_javascript(on);
         }
         if let Ok(pems) = serde_json::from_value::<Vec<String>>(v["trusted"].clone()) {
-            let certs = pems.iter().filter_map(|p| pdfcraft_engine::sign::x509::load_certificates(p.as_bytes()).ok()).flatten().collect();
-            self.apply_trusted_certificates(certs);
+            let certs: Vec<pdfcraft_engine::sign::Certificate> =
+                pems.iter().filter_map(|p| pdfcraft_engine::sign::x509::load_certificates(p.as_bytes()).ok()).flatten().collect();
+            // Version 2 stores explicit user trust only. Legacy entries can include OS roots.
+            #[cfg(target_os = "windows")]
+            let certs = if v["trusted_source_version"].as_u64() == Some(2) {
+                certs
+            } else {
+                match pdfcraft_engine::sign::windows::trusted_roots() {
+                    Ok(roots) => certs.into_iter().filter(|c| !roots.iter().any(|r| r.raw == c.raw)).collect::<Vec<_>>(),
+                    Err(_) => Vec::new(), // Fail closed for ambiguous legacy trust.
+                }
+            };
+            self.user_trusted_certificates = certs.clone();
+            let combined = certs;
+            #[cfg(target_os = "windows")]
+            let combined = {
+                let mut combined = combined;
+                if let Ok(roots) = pdfcraft_engine::sign::windows::trusted_roots() {
+                    for root in roots {
+                        if !combined.iter().any(|c| c.raw == root.raw) {
+                            combined.push(root);
+                        }
+                    }
+                }
+                combined
+            };
+            self.apply_trusted_certificates(combined);
         }
     }
 
@@ -3218,5 +3260,67 @@ impl PdfCraftApp {
                 view.finish_render_frame(ctx, &doc.info, &doc.renderer);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod trust_persistence_tests {
+    use super::PdfCraftApp;
+
+    fn fixture_cert() -> pdfcraft_engine::sign::Certificate {
+        let pem = include_bytes!("../../sign/tests/data/ca.crt.pem");
+        pdfcraft_engine::sign::x509::load_certificates(pem).unwrap().remove(0)
+    }
+
+    #[test]
+    fn explicit_user_trust_survives_save_and_restore() {
+        let mut app = PdfCraftApp::new();
+        let cert = fixture_cert();
+        app.trust_certificate(cert.clone());
+        app.trust_certificate(cert.clone());
+        let saved: serde_json::Value = serde_json::from_str(&app.persist()).unwrap();
+        assert_eq!(saved["trusted"].as_array().unwrap().len(), 1);
+        let mut restored = PdfCraftApp::new();
+        restored.restore(&saved.to_string());
+        assert!(restored.session.trusted_certificates().iter().any(|c| c.raw == cert.raw));
+        let again: serde_json::Value = serde_json::from_str(&restored.persist()).unwrap();
+        assert_eq!(again["trusted"], saved["trusted"]);
+    }
+
+    #[test]
+    fn legacy_user_trust_is_migrated() {
+        let mut legacy_app = PdfCraftApp::new();
+        legacy_app.trust_certificate(fixture_cert());
+        let mut legacy: serde_json::Value = serde_json::from_str(&legacy_app.persist()).unwrap();
+        legacy.as_object_mut().unwrap().remove("trusted_source_version");
+        let mut restored = PdfCraftApp::new();
+        restored.restore(&legacy.to_string());
+        let saved: serde_json::Value = serde_json::from_str(&restored.persist()).unwrap();
+        assert_eq!(saved["trusted_source_version"], 2);
+        assert_eq!(saved["trusted"], legacy["trusted"]);
+    }
+    #[test]
+    fn saved_trust_format_is_versioned_and_stable_on_restore() {
+        let app = PdfCraftApp::new();
+        let saved: serde_json::Value = serde_json::from_str(&app.persist()).unwrap();
+        assert_eq!(saved["trusted_source_version"], 2);
+        assert!(saved["trusted"].is_array());
+        let mut restored = PdfCraftApp::new();
+        restored.restore(&saved.to_string());
+        let again: serde_json::Value = serde_json::from_str(&restored.persist()).unwrap();
+        assert_eq!(again["trusted_source_version"], 2);
+        assert_eq!(again["trusted"], saved["trusted"]);
+    }
+
+    #[test]
+    fn legacy_unversioned_trust_settings_are_accepted_without_data_loss() {
+        let app = PdfCraftApp::new();
+        let mut legacy: serde_json::Value = serde_json::from_str(&app.persist()).unwrap();
+        legacy.as_object_mut().unwrap().remove("trusted_source_version");
+        let mut restored = PdfCraftApp::new();
+        restored.restore(&legacy.to_string());
+        let saved: serde_json::Value = serde_json::from_str(&restored.persist()).unwrap();
+        assert_eq!(saved["trusted_source_version"], 2);
+        assert_eq!(saved["trusted"], legacy["trusted"]);
     }
 }

@@ -239,12 +239,19 @@ fn drawing_a_signature_creating_an_id_signing_and_trusting() {
     h.get_by_label("Don't save").click();
     h.run_steps(2);
     assert_eq!(h.state().views.len(), 1);
-    // Trusted certificates and the ID list persist.
+    // Trusted certificates and the ID list persist. Windows also seeds the
+    // native OS trust store (hundreds of roots), so the count is not exactly 1.
+    // Verify preservation of the actual DER identities rather than an
+    // OS-dependent number of certificates.
+    let trusted_before: Vec<Vec<u8>> = h.state().session.trusted_certificates().iter().map(|cert| cert.raw.clone()).collect();
+    assert!(!trusted_before.is_empty());
     let saved = h.state().persist();
     let mut fresh = PdfCraftApp::new();
     fresh.set_option("language", "en").unwrap();
     fresh.restore(&saved);
-    assert_eq!((fresh.digital_ids.len(), fresh.session.trusted_certificates().len()), (1, 1));
+    assert_eq!(fresh.digital_ids.len(), 1);
+    let trusted_after: std::collections::HashSet<&[u8]> = fresh.session.trusted_certificates().iter().map(|cert| cert.raw.as_slice()).collect();
+    assert!(trusted_before.iter().all(|cert| trusted_after.contains(cert.as_slice())), "all previously trusted certificates survive reload");
 }
 
 #[test]

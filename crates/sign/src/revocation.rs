@@ -40,6 +40,44 @@ fn valid_in_window(this: Time, next: Option<Time>, at: Time) -> bool {
     at >= this && next.is_none_or(|n| at <= n)
 }
 
+// A delta CRL cannot prove non-revocation without its matching base CRL.
+// Issuing distribution points may restrict a CRL to only part of a CA's
+// issued certificates. Until these scopes are implemented, fail closed.
+fn check_crl_extensions(raw: Tlv<'_>, entry: bool) -> Result<(), SignError> {
+    let extensions = raw.expect(tag::SEQUENCE, "CRL extensions")?.children()?;
+    if extensions.len() > 64 {
+        return Err(bad("too many CRL extensions"));
+    }
+    let mut seen = std::collections::HashSet::new();
+    for ext in extensions {
+        let fields = ext.expect(tag::SEQUENCE, "CRL extension")?.children()?;
+        if !(fields.len() == 2 || fields.len() == 3) {
+            return Err(bad("malformed CRL extension"));
+        }
+        let oid = fields[0].expect(tag::OID, "CRL extension OID")?.oid()?;
+        if !seen.insert(oid.clone()) {
+            return Err(bad("duplicate CRL extension"));
+        }
+        let (critical, value) = if fields.len() == 3 {
+            let flag = fields[1].expect(tag::BOOLEAN, "CRL critical flag")?;
+            if flag.value != [0xff] {
+                return Err(bad("non-canonical CRL critical flag"));
+            }
+            (true, fields[2])
+        } else {
+            (false, fields[1])
+        };
+        value.expect(tag::OCTET_STRING, "CRL extension value")?;
+        if oid == "2.5.29.27" || oid == "2.5.29.28" || oid == "2.5.29.29" {
+            return Err(bad("delta, scoped or indirect CRL requires separate validation"));
+        }
+        if critical {
+            return Err(bad(if entry { "unsupported critical CRL entry extension" } else { "unsupported critical CRL extension" }));
+        }
+    }
+    Ok(())
+}
+
 /// Verify `signature` over the raw `signed` bytes with `key`, where the signature's algorithm
 /// identifier names the digest.
 fn verify_signature(signed: &[u8], alg_raw: &[u8], signature: &[u8], key: &PublicKey) -> bool {
@@ -74,7 +112,10 @@ impl CertificateList {
         if f.peek().is_some_and(|t| t.tag == tag::INTEGER) {
             f.next(); // version
         }
-        let _alg = f.next().ok_or_else(|| bad("tbsCertList"))?;
+        let tbs_alg = f.next().ok_or_else(|| bad("tbsCertList"))?;
+        if tbs_alg.raw != alg.raw {
+            return Err(bad("CRL signature algorithm differs between TBS and outer envelope"));
+        }
         let issuer = f.next().ok_or_else(|| bad("tbsCertList"))?.raw.to_vec();
         let this_update = f.next().ok_or_else(|| bad("tbsCertList"))?.time()?;
         let mut next_update = None;
@@ -87,8 +128,20 @@ impl CertificateList {
                 let e = entry.children()?;
                 let serial = e.first().ok_or_else(|| bad("revoked entry"))?.uint_bytes().to_vec();
                 let at = e.get(1).ok_or_else(|| bad("revoked entry"))?.time()?;
+                if e.len() > 3 {
+                    return Err(bad("unexpected revoked entry fields"));
+                }
+                if let Some(extensions) = e.get(2) {
+                    check_crl_extensions(*extensions, true)?;
+                }
                 revoked.push((serial, at));
             }
+        }
+        if let Some(extension) = f.next() {
+            if extension.tag != tag::ctx(0) || f.next().is_some() {
+                return Err(bad("unexpected CRL TBS fields"));
+            }
+            check_crl_extensions(extension.inner()?, false)?;
         }
         Ok(CertificateList {
             tbs: tbs.raw.to_vec(),
@@ -105,6 +158,11 @@ impl CertificateList {
     /// signature must verify with the issuer's key, and `at` must fall inside its window.
     pub fn check(&self, cert: &Certificate, issuer: &Certificate, at: Time) -> RevocationStatus {
         if self.issuer_raw != issuer.subject.raw || issuer.subject.raw != cert.issuer.raw {
+            return RevocationStatus::Unknown;
+        }
+        // RFC 5280 keyUsage bit 6: a CA may sign CRLs only if cRLSign is
+        // granted whenever its keyUsage extension is present.
+        if issuer.key_usage.is_some_and(|usage| usage & (1 << 6) == 0) {
             return RevocationStatus::Unknown;
         }
         if !verify_signature(&self.tbs, &self.sig_alg, &self.signature, &issuer.public_key) {
@@ -181,7 +239,13 @@ impl OcspResponse {
             return Err(bad("OCSP response is empty or exceeds the 2 MiB limit"));
         }
         let resp = Tlv::parse_all(bytes)?.expect(tag::SEQUENCE, "OCSPResponse")?.children()?;
-        let status = resp.first().ok_or_else(|| bad("missing responseStatus"))?.u64()?;
+        // RFC 6960 responseStatus is ENUMERATED, not INTEGER. The old
+        // test fixture used INTEGER and hid rejection of actual QTSP replies.
+        let status_field = resp.first().ok_or_else(|| bad("missing responseStatus"))?;
+        if status_field.tag != tag::ENUMERATED || status_field.value.len() != 1 || status_field.value[0] > 6 {
+            return Err(bad("OCSP responseStatus is not an RFC 6960 ENUMERATED"));
+        }
+        let status = u64::from(status_field.value[0]);
         if status != 0 {
             return Err(bad(format!("responder reported an error (status {status})")));
         }
@@ -199,7 +263,9 @@ impl OcspResponse {
         let mut responder_cert = None;
         for t in it {
             if t.tag == tag::ctx(0) {
-                for c in t.children()? {
+                // BasicOCSPResponse.certs [0] EXPLICIT SEQUENCE OF Certificate.
+                // The first child is the SEQUENCE OF, not a certificate.
+                for c in t.inner()?.children()? {
                     if c.tag == tag::SEQUENCE
                         && let Ok(cert) = Certificate::parse(c.raw)
                     {
@@ -279,6 +345,11 @@ impl OcspResponse {
         let Some(responder) = responder else { return RevocationStatus::Unknown };
         // A delegated responder must carry the OCSP-signing EKU and be issued by the issuer.
         if responder.subject.raw != issuer.subject.raw {
+            // A delegated responder must be authorized at the *evaluation*
+            // time and, if keyUsage is present, permit digital signatures.
+            if !responder.valid_at(at) || responder.key_usage.is_some_and(|usage| usage & 1 == 0) {
+                return RevocationStatus::Unknown;
+            }
             if responder.issuer.raw != issuer.subject.raw || !responder.signed_by(&issuer.public_key) {
                 return RevocationStatus::Unknown;
             }
@@ -290,12 +361,18 @@ impl OcspResponse {
             return RevocationStatus::Unknown;
         }
         // Find the SingleResponse for this certificate: the CertID hashes must recompute.
-        let single = self.responses.iter().find(|r| {
+        let mut matches = self.responses.iter().filter(|r| {
             let name_hash = r.cert_id.hash_alg.digest(&[&cert.issuer.raw]);
             let key_hash = r.cert_id.hash_alg.digest(&[&issuer.public_key.key_bits()]);
             name_hash == r.cert_id.issuer_name_hash && key_hash == r.cert_id.issuer_key_hash && strip(&r.cert_id.serial) == strip(&cert.serial)
         });
-        let Some(single) = single else { return RevocationStatus::Unknown };
+        let Some(single) = matches.next() else { return RevocationStatus::Unknown };
+        // Contradictory or repeated SingleResponses must not be resolved by
+        // their order in a signed OCSP response. Never accept the first Good
+        // if the responder also included a second status for the same CertID.
+        if matches.next().is_some() {
+            return RevocationStatus::Unknown;
+        }
         if !valid_in_window(single.this_update, single.next_update, at) {
             return RevocationStatus::Unknown;
         }

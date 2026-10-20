@@ -21,7 +21,8 @@
 #>
 param(
   [ValidateSet('x64', 'x86', 'arm64')] [string] $Arch = 'x64',
-  [switch] $SkipBuild
+  [switch] $SkipBuild,
+  [switch] $RequireTrustedRelease
 )
 $ErrorActionPreference = 'Stop'
 $Root = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
@@ -95,6 +96,10 @@ foreach ($f in 'LICENSE-MIT', 'LICENSE-APACHE', 'NOTICE') {
 Copy-Item (Join-Path $Root 'assets\app-icon\LICENSE-document.txt') $Stage
 
 & (Join-Path $PSScriptRoot 'sign.ps1') (Join-Path $Stage 'pdfcraft.exe') (Join-Path $Stage 'pdfcraft-cli.exe')
+if ($RequireTrustedRelease) {
+  & (Join-Path $PSScriptRoot 'assert-trusted-release.ps1') -Paths @((Join-Path $Stage 'pdfcraft.exe'), (Join-Path $Stage 'pdfcraft-cli.exe'))
+  if ($LASTEXITCODE -ne 0) { throw 'Trusted EXE/CLI release gate did not pass' }
+}
 
 # OCR models (#103): the app looks in models\ beside pdfcraft.exe. `cargo xtask models` fetches every
 # ATTRIBUTION.toml `kind = "model"` file (verified by SHA-256) with its licence and ATTRIBUTION.txt;
@@ -122,6 +127,10 @@ Invoke-Native 'test-msi' { & (Get-Process -Id $PID).Path -NoProfile -File (Join-
 # wix writes its debug symbols (.wixpdb) next to the MSI; keep them out of the release assets.
 Remove-Item -Force -ErrorAction SilentlyContinue ([IO.Path]::ChangeExtension($Msi, '.wixpdb'))
 & (Join-Path $PSScriptRoot 'sign.ps1') $Msi
+if ($RequireTrustedRelease) {
+  & (Join-Path $PSScriptRoot 'assert-trusted-release.ps1') -Paths $Msi
+  if ($LASTEXITCODE -ne 0) { throw 'Trusted MSI release gate did not pass' }
+}
 
 # ---- portable zip ------------------------------------------------------------------------------
 $Portable = Join-Path $TargetDir "windows-package\pdfcraft-$Version-windows-$Arch-portable"

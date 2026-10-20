@@ -257,29 +257,73 @@ fn crl(issuer: &pkcs12::DigitalId, revoked_serial: Option<(&[u8], Time)>, this: 
     der::seq(&[&tbs, &alg, &der::bit_string(&sig)])
 }
 
+/// A correctly signed synthetic CRL carrying one v2 extension.
+fn crl_with_extension(issuer: &pkcs12::DigitalId, oid: &str, critical: bool) -> Vec<u8> {
+    let alg = issuer.key.signature_algorithm(DigestAlg::Sha256);
+    let mut parts = vec![der::oid(oid)];
+    if critical {
+        parts.push(der::tlv(tag::BOOLEAN, &[0xff]));
+    }
+    parts.push(der::octets(&der::int(1)));
+    let extension = der::seq(&parts.iter().map(Vec::as_slice).collect::<Vec<_>>());
+    let extensions = der::seq(&[&extension]);
+    let this = mid_june();
+    let next = Time { year: 2026, month: 7, day: 15, hour: 12, minute: 0, second: 0 };
+    let tbs = der::seq(&[&der::int(1), &alg, &issuer.certificate.subject.raw, &this.encode(), &next.encode(), &der::explicit(0, &extensions)]);
+    let signature = issuer.key.sign(DigestAlg::Sha256, &tbs).unwrap();
+    der::seq(&[&tbs, &alg, &der::bit_string(&signature)])
+}
+
+#[test]
+fn crl_scope_and_critical_extensions_fail_closed() {
+    let id = pkcs12::open(&data("ec-p256.p12"), "test").unwrap();
+    let issuer = &id.certificate;
+    for (oid, critical) in [
+        ("2.5.29.27", false), // deltaCRLIndicator: base CRL is not present
+        ("2.5.29.28", true),  // issuingDistributionPoint: scoped/indirect CRL
+        ("2.5.29.29", false), // certificateIssuer: indirect CRL entry semantics
+        ("1.2.3.4.5", true),  // unknown critical extension
+    ] {
+        let der = crl_with_extension(&id, oid, critical);
+        assert!(CertificateList::parse(&der).is_err(), "unsafe extension {oid} accepted");
+    }
+    // Unknown *noncritical* extension does not change ordinary CRL semantics.
+    let allowed = crl_with_extension(&id, "1.2.3.4.5", false);
+    let parsed = CertificateList::parse(&allowed).unwrap();
+    assert_eq!(parsed.check(issuer, issuer, mid_june()), RevocationStatus::Good);
+}
+
 /// A self-issued OCSP response from `issuer` answering for its own serial.
 fn ocsp(issuer: &pkcs12::DigitalId, status: RevocationStatus, this: Time, next: Time) -> Vec<u8> {
+    ocsp_with_statuses(issuer, &[status], this, next)
+}
+
+fn ocsp_with_statuses(issuer: &pkcs12::DigitalId, statuses: &[RevocationStatus], this: Time, next: Time) -> Vec<u8> {
     let cert_id = der::seq(&[
         &DigestAlg::Sha1.algorithm(),
         &der::octets(&DigestAlg::Sha1.digest(&[&issuer.certificate.issuer.raw])),
         &der::octets(&DigestAlg::Sha1.digest(&[&issuer.certificate.public_key.key_bits()])),
         &der::uint(&issuer.certificate.serial),
     ]);
-    // RFC 6960's real encodings: good [0] IMPLICIT NULL, revoked [1] IMPLICIT RevokedInfo,
-    // unknown [2] IMPLICIT; nextUpdate [0] EXPLICIT GeneralizedTime.
-    let status = match status {
-        RevocationStatus::Good => der::tlv(tag::ctx_prim(0), &[]),
-        RevocationStatus::Revoked { at } => der::tlv(tag::ctx(1), &at.encode()),
-        RevocationStatus::Unknown => der::tlv(tag::ctx_prim(2), &[]),
-    };
-    let single = der::seq(&[&cert_id, &status, &this.encode(), &der::tlv(tag::ctx(0), &next.encode())]);
+    let responses: Vec<Vec<u8>> = statuses
+        .iter()
+        .map(|status| {
+            let status = match status {
+                RevocationStatus::Good => der::tlv(tag::ctx_prim(0), &[]),
+                RevocationStatus::Revoked { at } => der::tlv(tag::ctx(1), &at.encode()),
+                RevocationStatus::Unknown => der::tlv(tag::ctx_prim(2), &[]),
+            };
+            der::seq(&[&cert_id, &status, &this.encode(), &der::tlv(tag::ctx(0), &next.encode())])
+        })
+        .collect();
+    let response_refs: Vec<&[u8]> = responses.iter().map(Vec::as_slice).collect();
     let responder_id = der::tlv(tag::ctx(1), &issuer.certificate.subject.raw);
-    let tbs = der::seq(&[&responder_id, &this.encode(), &der::seq(&[&single])]);
+    let tbs = der::seq(&[&responder_id, &this.encode(), &der::seq(&response_refs)]);
     let alg = issuer.key.signature_algorithm(DigestAlg::Sha256);
     let sig = issuer.key.sign(DigestAlg::Sha256, &tbs).unwrap();
     let basic = der::seq(&[&tbs, &alg, &der::bit_string(&sig)]);
     let basic_type = der::oid("1.3.6.1.5.5.7.48.1.1");
-    der::seq(&[&der::int(0), &der::explicit(0, &der::seq(&[&basic_type, &der::octets(&basic)]))])
+    der::seq(&[&der::tlv(tag::ENUMERATED, &[0]), &der::explicit(0, &der::seq(&[&basic_type, &der::octets(&basic)]))])
 }
 
 fn mid_june() -> Time {
@@ -295,6 +339,9 @@ fn crls_verify_and_report_revocation() {
     // Not on the list: good.
     let clean = CertificateList::parse(&crl(&id, None, this, next)).unwrap();
     assert_eq!(clean.check(issuer, issuer, at), RevocationStatus::Good);
+    let mut non_crl_signer = issuer.clone();
+    non_crl_signer.key_usage = Some(1 << 5); // keyCertSign but not cRLSign
+    assert_eq!(clean.check(issuer, &non_crl_signer, at), RevocationStatus::Unknown);
     // On the list: revoked with its date.
     let revoked =
         CertificateList::parse(&crl(&id, Some((&issuer.serial, Time { year: 2026, month: 6, day: 1, hour: 8, minute: 0, second: 0 })), this, next))
@@ -372,6 +419,12 @@ fn ocsp_responses_verify_and_match_the_certificate() {
         revoked.check(issuer, issuer, at),
         RevocationStatus::Revoked { at: Time { year: 2026, month: 6, day: 2, hour: 9, minute: 0, second: 0 } }
     );
+    // A signed response with multiple statuses for the same CertID is
+    // ambiguous: a Good first entry must never hide a revoked second entry.
+    let duplicated = OcspResponse::parse(&ocsp_with_statuses(&id, &[RevocationStatus::Good, RevocationStatus::Revoked { at }], this, next)).unwrap();
+    assert_eq!(duplicated.check(issuer, issuer, at), RevocationStatus::Unknown);
+    let twice_good = OcspResponse::parse(&ocsp_with_statuses(&id, &[RevocationStatus::Good, RevocationStatus::Good], this, next)).unwrap();
+    assert_eq!(twice_good.check(issuer, issuer, at), RevocationStatus::Unknown);
     // Outside the window: unknown.
     let later = Time { year: 2026, month: 8, day: 1, hour: 0, minute: 0, second: 0 };
     assert_eq!(good.check(issuer, issuer, later), RevocationStatus::Unknown);
@@ -380,8 +433,11 @@ fn ocsp_responses_verify_and_match_the_certificate() {
     let wrong_key = OcspResponse::parse(&ocsp(&other, RevocationStatus::Good, this, next)).unwrap();
     assert_eq!(wrong_key.check(issuer, issuer, at), RevocationStatus::Unknown);
     // An error response is rejected at parse time.
-    let error = der::seq(&[&der::int(6)]);
+    let error = der::seq(&[&der::tlv(tag::ENUMERATED, &[6])]);
     assert!(OcspResponse::parse(&error).is_err());
+    // An INTEGER is not an RFC 6960 status, even if its value is 0.
+    let wrong_tag = der::seq(&[&der::int(0)]);
+    assert!(OcspResponse::parse(&wrong_tag).is_err());
 }
 
 // ── tolerance for the encodings found in old and unusual signers ───────────────────────────────

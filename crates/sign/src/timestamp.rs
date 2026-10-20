@@ -34,6 +34,15 @@ impl TimestampQuery {
         Ok(Self { digest, imprint, policy: None, nonce: None, certificate_request: true })
     }
 
+    /// Give an online request an unpredictable, positive nonce; the response
+    /// must echo the exact value. A failed OS CSPRNG fails the signing call.
+    pub fn with_random_nonce(mut self) -> Result<Self, SignError> {
+        let mut bytes = [0u8; 8];
+        getrandom::fill(&mut bytes).map_err(|e| SignError::Crypto(format!("timestamp nonce RNG unavailable: {e}")))?;
+        self.nonce = Some((u64::from_be_bytes(bytes) & 0x7fff_ffff_ffff_ffff).max(1));
+        Ok(self)
+    }
+
     /// Encode a DER `TimeStampReq` (RFC 3161 §2.4.1).
     pub fn encode(&self) -> Result<Vec<u8>, SignError> {
         let alg = self.digest.algorithm();
@@ -62,6 +71,8 @@ pub struct TimestampToken {
     pub policy: String,
     pub serial: Vec<u8>,
     pub gen_time: Time,
+    /// Request nonce echoed by the TSA, if supplied. This is not a trust anchor.
+    pub nonce: Option<u64>,
 }
 
 impl TimestampToken {
@@ -140,6 +151,15 @@ pub fn parse_token(raw: &[u8]) -> Result<TimestampToken, SignError> {
         .to_vec();
     let serial = fields.get(3).ok_or_else(|| bad("TSTInfo has no serial number"))?.uint_bytes().to_vec();
     let gen_time = fields.get(4).ok_or_else(|| bad("TSTInfo has no generation time"))?.time()?;
+    // RFC 3161 TSTInfo after genTime: accuracy SEQUENCE, ordering BOOLEAN,
+    // nonce INTEGER, tsa [0] and extensions [1]. An INTEGER outside of the
+    // optional accuracy SEQUENCE is the echoed request nonce.
+    let mut nonce = None;
+    for field in fields.iter().skip(5) {
+        if field.tag == tag::INTEGER && nonce.replace(field.u64()?).is_some() {
+            return Err(bad("TSTInfo contains multiple nonce fields"));
+        }
+    }
     // The signed messageDigest uses the SignerInfo's digest algorithm, which need not be the
     // imprint's (RFC 5652 §5.4).
     let content_digest = token.signer.digest.digest(&[info]);
@@ -151,7 +171,7 @@ pub fn parse_token(raw: &[u8]) -> Result<TimestampToken, SignError> {
     if !token.verify_signature(cert, &content_digest)? {
         return Err(bad("TSA signature is invalid"));
     }
-    Ok(TimestampToken { raw: raw.to_vec(), digest, imprint, policy, serial, gen_time })
+    Ok(TimestampToken { raw: raw.to_vec(), digest, imprint, policy, serial, gen_time, nonce })
 }
 
 /// Parse and validate a `TimeStampResp`, including the CMS signature and message imprint.
@@ -169,6 +189,12 @@ pub fn parse_response(bytes: &[u8], query: &TimestampQuery) -> Result<TimestampT
     let token = parse_token(token.raw)?;
     if token.digest != query.digest || token.imprint != query.imprint {
         return Err(bad("message imprint does not match the requested digest"));
+    }
+    if query.nonce.is_some() && token.nonce != query.nonce {
+        return Err(bad("response nonce does not match the request"));
+    }
+    if query.policy.as_ref().is_some_and(|policy| policy != &token.policy) {
+        return Err(bad("response policy does not match the request"));
     }
     Ok(token)
 }
@@ -223,6 +249,14 @@ mod tests {
         assert_eq!(fields[2].oid().unwrap(), "1.2.3.4");
         assert_eq!(fields[3].u64().unwrap(), 42);
         assert_eq!(fields[4].value, &[0xff]);
+    }
+
+    #[test]
+    fn online_timestamp_query_has_a_positive_unpredictable_nonce() {
+        let digest = DigestAlg::Sha256.digest(&[b"release"]);
+        let query = TimestampQuery::new(DigestAlg::Sha256, digest).unwrap().with_random_nonce().unwrap();
+        assert!(query.nonce.is_some_and(|nonce| nonce > 0 && nonce <= i64::MAX as u64));
+        assert_eq!(parse_request(&query.encode().unwrap()).unwrap().nonce, query.nonce);
     }
 
     #[test]

@@ -1,0 +1,9 @@
+# eIDAS signed checkpoint high-water store (local-only)
+
+`tools/eidas_signed_checkpoint.py` verifies detached Ed25519 signatures over exact JSON bytes using a public key whose DER SubjectPublicKeyInfo SHA-256 must be pinned independently. The verifier does not create a signing key, assume a key is trustworthy, or sign any real eIDAS evidence.
+
+`tools/eidas_checkpoint_store.py` exposes `record_signed_checkpoint(db_path, checkpoint_path, signature_path, public_key_path, pinned_key_sha256)`. It verifies the signature and key pin, validates the snapshot schema and SHA-256 entries, then uses a SQLite `BEGIN IMMEDIATE` transaction to compare against and update the last accepted checkpoint. It rejects older sequences, reversed issue dates, equivocation, silent key rotation, and invalid signatures. An initial checkpoint is not independently authenticated by the local database; its signer key must be established by the caller through an independent trusted channel.
+
+**Threat boundary:** SQLite is mutable and restorable by an administrator or attacker with filesystem access. Its stored SHA-256 is an accidental-corruption check, not a MAC. A replay of an old database together with an old, correctly signed checkpoint can still pass. To assert actual rollback protection, an external append-only witness, independently protected monotonic counter, or equivalent authenticated non-rollbackable state is necessary. Do not use a local timestamp, local file ACL, self-generated key, or SQLite transaction alone as that witness.
+
+The API deliberately reports `independent_state_integrity_verified: false`, `rollback_protection_verified: false`, and `qualification: Indeterminate`. It is a local diagnostic component, not a QES determination. No real B-Trust signer private key or personal certificate is involved.

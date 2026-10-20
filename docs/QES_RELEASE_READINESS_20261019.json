@@ -1,0 +1,108 @@
+{
+  "schema": "pdfcraft.qes-release-readiness.v1",
+  "date": "2026-10-19",
+  "repos": {
+    "pdfcraft_fork": "https://github.com/Yanakiev432/pdfcraft",
+    "pdfcraft_review": "https://github.com/Yanakiev432/pdfcraft/pull/1",
+    "pdfcraft_development_commit": "4fecbc4",
+    "core": "https://github.com/Yanakiev432/craft-signing-core",
+    "core_review": "https://github.com/Yanakiev432/craft-signing-core/pull/1",
+    "core_pinned_commit": "a33e111",
+    "upstream": "https://github.com/storytold/pdfcraft"
+  },
+  "acceptance": {
+    "user_photo_gui_verdict": "Independent EU DSS: QES PASS",
+    "photo_kept_out_of_git": true,
+    "native_pdf_sign_test": "PASS",
+    "independent_dss": "QESig/TOTAL_PASSED",
+    "independent_format": "PAdES-BASELINE-B",
+    "pades_profile_gate": {
+      "B": "PASS",
+      "T": "NO_GO",
+      "LT": "NO_GO",
+      "LTA": "NO_GO",
+      "tests_passed": 4
+    },
+    "pdf_sign_rust_tests": "PASS; no failures",
+    "pdf_sign_pdf_tests_passed": 52,
+    "eidas_python_tests_passed": 78,
+    "eidas_python_tests_failed": 0,
+    "reusable_core_tests_passed": 6,
+    "reusable_core_windows_gnu_check": "PASS",
+    "pdfcraft_windows_cross_check": "PASS",
+    "new_locked_windows_dev_build": "PASS",
+    "new_windows_gui_runtime_smoke": "PASS; test PDF opened; window closed"
+  },
+  "latest_local_unsigned_candidate": {
+    "source_commit": "4fecbc4",
+    "build_profile": "dev / windows GNU cross target",
+    "source": "Cargo.lock pinned; --offline --locked",
+    "directory": "C:\\Users\\User\\Documents\\PdfCraft-builds\\20261019-4fecbc4",
+    "artifacts": [
+      {
+        "file": "pdfcraft.exe",
+        "sha256": "CAC1821EC0346C9D7E6CA66696F327AB430B11FE9A00C4BBE9FB4D63EE49C1E1",
+        "bytes": 137888209,
+        "authenticode": "NotSigned",
+        "pe_subsystem": "console (dev expected)"
+      },
+      {
+        "file": "pdfcraft-cli.exe",
+        "sha256": "74C1DCAFEFEB09F344BA94C78F78051B5F81EC5DBFB6FF6E9154C148EFDB900D",
+        "bytes": 92707458,
+        "authenticode": "NotSigned",
+        "pe_subsystem": "console"
+      }
+    ],
+    "safe_for_public_release": false
+  },
+  "trusted_windows_msi": {
+    "status": "NO_GO",
+    "gate": "packaging/windows/assert-trusted-release.ps1 and package.ps1 -RequireTrustedRelease",
+    "negative_test": "unsigned PDFCraft EXE rejected with CODE_SIGNING_NO_GO and exit 1",
+    "missing": [
+      "trusted code-signing provider/certificate",
+      "authorized signed release pipeline and artifact trust approval",
+      "WiX and signtool in build environment",
+      "release build with GUI subsystem 2",
+      "brand/trademark clearance and a separate release QA suite"
+    ],
+    "provider_routes": [
+      {
+        "name": "SignPath Foundation",
+        "fee_policy": "free if approved for qualified open-source project",
+        "status": "not applied / not approved",
+        "constraints": [
+          "public visible fork now exists",
+          "upstream claims signed Windows builds",
+          "release branches/reviews need verification",
+          "GitHub-hosted Actions build required by SignPath OSS connector and conflicts with previously requested local-only CI"
+        ]
+      },
+      {
+        "name": "Microsoft Store",
+        "fee_policy": "individual developer onboarding may be free in eligible markets",
+        "status": "no user enrollment or identity verification available",
+        "constraints": [
+          "publisher Microsoft account identity verification and Store certification",
+          "MSIX Store signing is a distinct distribution channel from independent trusted MSI"
+        ]
+      }
+    ]
+  },
+  "word_grid": {
+    "public_review": "https://github.com/Yanakiev432/craft-signing-core/pull/1",
+    "provider_and_format_contract": "implemented; compiled; tested",
+    "signed_docx": "NOT_IMPLEMENTED",
+    "signed_xlsx": "NOT_IMPLEMENTED",
+    "reason": "OOXML signatures require OPC package signatures, XMLDSig and Office interoperability; cannot reuse PDF PAdES serialization verbatim"
+  },
+  "privacy_security": {
+    "smart_app_control_disabled": false,
+    "security_policy_modified": false,
+    "personal_token_pin_processed": false,
+    "personal_signed_pdf_published": false,
+    "private_photo_published": false
+  },
+  "conclusion": "Local PDF qualified signature baseline-B and GUI independent verification are usable. Trusted EXE/MSI and genuine PAdES B-T/LT/LTA and signed DOCX/XLSX remain NO-GO without specific external dependencies and further implementations. No false PASS."
+}
