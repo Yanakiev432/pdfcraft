@@ -3,6 +3,7 @@ on:
   pull_request:
     paths:
       - '.github/workflows/release.yml'
+      - 'packaging/windows/assert-trusted-release.ps1'
       - '.github/workflows/release-immutable-gate.yml'
   push:
     branches:
@@ -30,3 +31,38 @@ jobs:
             exit 1
           fi
           echo 'EXTERNAL_RELEASE_REF_PINNED=PASS'
+  reject-unapproved-publisher:
+    runs-on: windows-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Release must explicitly match expected certificate SHA256
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $gate = Join-Path $PWD 'packaging/windows/assert-trusted-release.ps1'
+          $dummy = Join-Path $env:RUNNER_TEMP 'unsigned.pdfcraft.exe'
+          [IO.File]::WriteAllBytes($dummy, [byte[]](0x4d, 0x5a, 0, 0))
+          Remove-Item Env:CRAFT_RELEASE_PUBLISHER_SHA256 -ErrorAction SilentlyContinue
+          $rejected = $false
+          try { & $gate -Paths @($dummy) | Out-Null }
+          catch { $rejected = $_.Exception.Message.Contains('approved publisher certificate SHA256') }
+          if (-not $rejected) { throw 'FAIL_OPEN: unpinned release publisher' }
+          $env:CRAFT_RELEASE_PUBLISHER_SHA256 = '0000000000000000000000000000000000000000000000000000000000000000'
+          $rejected = $false
+          try { & $gate -Paths @($dummy) | Out-Null }
+          catch { $rejected = $true }
+          if (-not $rejected) { throw 'FAIL_OPEN: unsigned EXE' }
+          $osExe = Join-Path $env:WINDIR 'System32\\WindowsPowerShell\\v1.0\\powershell.exe'
+          if ((Get-AuthenticodeSignature -LiteralPath $osExe).Status -eq 'Valid') {
+            $rejected = $false
+            try { & $gate -Paths @($osExe) | Out-Null }
+            catch { $rejected = $_.Exception.Message.Contains('not the explicitly approved signer') }
+            if (-not $rejected) { throw 'FAIL_OPEN: valid but unapproved external publisher' }
+            Write-Host 'UNAPPROVED_TRUSTED_SIGNER_REJECTED=PASS'
+          } else {
+            Write-Host 'EXTERNAL_VALID_SIGNER_TEST_SKIPPED=OS_SIGNATURE_UNAVAILABLE'
+          }
+          Write-Host 'AUTHENTICODE_PUBLISHER_PIN_REQUIRED=PASS'
