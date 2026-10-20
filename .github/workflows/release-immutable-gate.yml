@@ -1,0 +1,32 @@
+name: Immutable privileged release workflow gate
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/release.yml'
+      - '.github/workflows/release-immutable-gate.yml'
+  push:
+    branches:
+      - feature/release-workflow-immutable-ref-20261020
+    paths:
+      - '.github/workflows/release.yml'
+      - '.github/workflows/release-immutable-gate.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  reject-mutable-external-workflow:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Prevent moving ref from receiving signing credentials
+        run: |
+          set -euo pipefail
+          grep -F 'uses: storytold/craft-common-actions/.github/workflows/release.yml@d7bf8f06e138618890d0ebe8a84a18b010bf3f66' .github/workflows/release.yml
+          if grep -Fq '.github/workflows/release.yml@main' .github/workflows/release.yml; then
+            echo 'MUTABLE_RELEASE_REF_NO_GO'
+            exit 1
+          fi
+          echo 'EXTERNAL_RELEASE_REF_PINNED=PASS'
