@@ -66,6 +66,47 @@ The CLI above opens a **disposable PKCS#12 software test key**. The reusable
 CNG/PKCS#11 signing flow, but this demo neither accesses a physical B-Trust
 device nor proves that integration.
 
+## Windows Current User CNG smart-card path (compiled but NOT physically accepted)
+
+The native Windows example `crates/sign/examples/rfc3161_windows_manual_pades_bt.rs`
+calls `pdfcraft_sign::windows::find` to obtain the exact Windows certificate-store
+reference. It uses `PrivateKey::external`, preserving the private key inside
+Windows CNG or its authorized smart-card driver. Any PIN confirmation is owned
+entirely by the official provider UI. It neither accepts a PIN argument nor
+places a PIN in source, environment or GitHub CI.
+
+Obtain the exact SHA-256 reference **without opening the private key**:
+
+```powershell
+Get-ChildItem 'Cert:\CurrentUser\My' | ForEach-Object {
+  [PSCustomObject]@{
+    Subject = $_.Subject
+    CertificateReference = 'windows:' + [Convert]::ToHexString(
+      [Security.Cryptography.SHA256]::HashData($_.RawData)
+    ).ToLowerInvariant()
+  }
+}
+```
+
+With a clean disposable unsigned test PDF and a selected certificate
+reference from the listing, a human may run on the local Windows computer:
+
+```powershell
+cargo run --locked -p pdfcraft-sign --example rfc3161_windows_manual_pades_bt -- `
+  '.\tmp\manual-unsigned.pdf' '.\tmp\manual-cng-candidate.pdf' `
+  'windows:<SHA256_OF_SELECTED_CERTIFICATE_DER>' '.\tmp\manual-tsa-demo' `
+  'windows20261020a' 'D:20261020090000Z' 900
+```
+
+This first invokes the genuine CNG certificate provider to sign once and
+then retains the same process while the human obtains the exact TSR via the
+provider's authorized manual channel. A fresh session name and new destination
+are mandatory. **No one should execute the real-token path unattended or
+provide a PIN through chat.** The GitHub CI can only verify that this bridge
+**compiles**; it cannot validate a B-Trust hardware PIN interaction or grant
+legal eIDAS qualification. The manual TSR still needs a qualified provider,
+verified QTSA service status and independent EU DSS acceptance.
+
 ### Acceptance boundaries
 
 - Open TSA works only as a **nonqualified** developer provider.
