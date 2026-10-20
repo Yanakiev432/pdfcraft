@@ -38,8 +38,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Intentional restriction: only a disposable test software certificate.
     // Real B-Trust hardware signing belongs to an explicitly authorized CNG/PKCS#11
     // adapter with PIN entry through the official provider UI, never this CLI.
-    let pass = env::var("PDFCRAFT_TEST_PKCS12_PASSWORD")
-        .map_err(|_| "set PDFCRAFT_TEST_PKCS12_PASSWORD for a disposable TEST key")?;
+    let pass = env::var("PDFCRAFT_TEST_PKCS12_PASSWORD").map_err(|_| "set PDFCRAFT_TEST_PKCS12_PASSWORD for a disposable TEST key")?;
     let id = pkcs12::open(&fs::read(key)?, &pass)?;
     let original = fs::read(source)?;
     let doc = Document::open(Arc::new(original.clone()))?;
@@ -47,12 +46,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     eprintln!("HANDOFF_TSQ_LOCATION={}", authority.tsq_path().display());
     eprintln!("HANDOFF_TSR_LOCATION={}", authority.tsr_path().display());
     eprintln!("HANDOFF_READY_MARKER={}", authority.ready_path().display());
-    let opts = SignOptions {
-        date: args[6].clone(),
-        page: 0,
-        rect: Some([20.0, 100.0, 200.0, 150.0]),
-        ..SignOptions::default()
-    };
+    let opts = SignOptions { date: args[6].clone(), page: 0, rect: Some([20.0, 100.0, 200.0, 150.0]), ..SignOptions::default() };
     let signed = sign_with_timestamp(&doc, &id, &opts, &authority)?;
     if fs::read(source)? != original {
         return Err("source PDF was modified during the manual timestamp handoff: no output written".into());
