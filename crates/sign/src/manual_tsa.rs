@@ -102,7 +102,7 @@ impl TimestampAuthority for ManualTsaHandoff {
                 }
                 // Read from one open handle, with an explicit in-memory cap even if a
                 // local writer grows or replaces the file after the metadata check.
-                let mut file = fs::File::open(self.tsr_path()).map_err(|e| io_error("open response", e))?;
+                let file = fs::File::open(self.tsr_path()).map_err(|e| io_error("open response", e))?;
                 let opened = file.metadata().map_err(|e| io_error("inspect response", e))?;
                 if !opened.is_file() || opened.len() < 10 || opened.len() > MAX_RESPONSE {
                     return Err(invalid("response changed or exceeds 4 MiB"));
