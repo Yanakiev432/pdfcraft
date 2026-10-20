@@ -10,6 +10,7 @@ on:
   push:
     branches:
       - feature/rfc3161-free-provider-probe-20261019
+      - integration/craft-signing-qa-20261019
     paths:
       - 'tools/rfc3161_provider_probe.ps1'
       - 'tools/test_rfc3161_provider_probe.ps1'
