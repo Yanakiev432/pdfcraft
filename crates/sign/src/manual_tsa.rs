@@ -4,7 +4,7 @@
 //! The caller retains its signer in the SAME process while a human obtains TSR.
 //! A timeout/termination fails closed: a stale TSQ must NOT be retried by signing again.
 use std::fs::{self, OpenOptions};
-use std::io::Write;
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -100,7 +100,18 @@ impl TimestampAuthority for ManualTsaHandoff {
                 if !meta.file_type().is_file() || meta.len() < 10 || meta.len() > MAX_RESPONSE {
                     return Err(invalid("response must be a regular DER file 10 bytes..4 MiB"));
                 }
-                let bytes = fs::read(self.tsr_path()).map_err(|e| io_error("read response", e))?;
+                // Read from one open handle, with an explicit in-memory cap even if a
+                // local writer grows or replaces the file after the metadata check.
+                let mut file = fs::File::open(self.tsr_path()).map_err(|e| io_error("open response", e))?;
+                let opened = file.metadata().map_err(|e| io_error("inspect response", e))?;
+                if !opened.is_file() || opened.len() < 10 || opened.len() > MAX_RESPONSE {
+                    return Err(invalid("response changed or exceeds 4 MiB"));
+                }
+                let mut bytes = Vec::with_capacity(opened.len() as usize);
+                file.by_ref()
+                    .take(MAX_RESPONSE + 1)
+                    .read_to_end(&mut bytes)
+                    .map_err(|e| io_error("read bounded response", e))?;
                 if bytes.len() < 10 || bytes.len() as u64 > MAX_RESPONSE {
                     return Err(invalid("response changed or exceeds 4 MiB"));
                 }
