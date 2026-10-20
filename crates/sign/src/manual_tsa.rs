@@ -42,9 +42,7 @@ pub struct ManualTsaHandoff {
 
 impl ManualTsaHandoff {
     pub fn new(directory: &Path, session: &str, wait: Duration) -> Result<Self, SignError> {
-        if !(8..=64).contains(&session.len())
-            || !session.bytes().all(|c| c.is_ascii_alphanumeric() || c == b'-' || c == b'_')
-        {
+        if !(8..=64).contains(&session.len()) || !session.bytes().all(|c| c.is_ascii_alphanumeric() || c == b'-' || c == b'_') {
             return Err(invalid("session id must be 8..64 ASCII alphanumeric, hyphen or underscore characters"));
         }
         if wait.is_zero() || wait > Duration::from_secs(1800) {
@@ -86,11 +84,7 @@ impl TimestampAuthority for ManualTsaHandoff {
             return Err(invalid("session already used, cannot replay or overwrite"));
         }
         {
-            let mut file = OpenOptions::new()
-                .write(true)
-                .create_new(true)
-                .open(self.tsq_path())
-                .map_err(|e| io_error("create exclusive TSQ", e))?;
+            let mut file = OpenOptions::new().write(true).create_new(true).open(self.tsq_path()).map_err(|e| io_error("create exclusive TSQ", e))?;
             file.write_all(request).map_err(|e| io_error("write TSQ", e))?;
             file.sync_all().map_err(|e| io_error("sync TSQ", e))?;
         }
