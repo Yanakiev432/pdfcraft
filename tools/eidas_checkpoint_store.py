@@ -4,6 +4,7 @@
 A SQLite file can be replaced or rolled back by a privileged local actor.
 Never equate this local diagnostic with independently protected monotonic storage.
 """
+import contextlib
 import hashlib
 import json
 import sqlite3
@@ -22,7 +23,7 @@ def record_signed_checkpoint(db_path, checkpoint_path, signature_path, public_ke
     db_path = Path(db_path)
     if not db_path.parent.is_dir():
         raise ValueError('Database parent directory does not exist')
-    with sqlite3.connect(db_path, timeout=10, isolation_level=None) as db:
+    with contextlib.closing(sqlite3.connect(db_path, timeout=10, isolation_level=None)) as db:
         db.execute('BEGIN IMMEDIATE')
         try:
             db.execute('CREATE TABLE IF NOT EXISTS checkpoint_state (id INTEGER PRIMARY KEY CHECK(id=1), payload TEXT NOT NULL, sha256 TEXT NOT NULL, key_pin TEXT NOT NULL)')
