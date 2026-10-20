@@ -174,6 +174,60 @@ mod tests {
     }
 
     #[test]
+    fn premature_ready_marker_without_response_fails_closed() {
+        let dir = tmp();
+        let handoff = ManualTsaHandoff::new(&dir, "notfinished", Duration::from_secs(5)).unwrap();
+        let tsq = handoff.tsq_path();
+        let marker = handoff.ready_path();
+        let producer = thread::spawn(move || {
+            while !tsq.exists() {
+                thread::sleep(Duration::from_millis(20));
+            }
+            fs::write(marker, b"").unwrap();
+        });
+        assert!(handoff.timestamp(&query()).is_err());
+        producer.join().unwrap();
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn manually_supplied_der_with_wrong_nonce_is_rejected() {
+        let dir = tmp();
+        let handoff = ManualTsaHandoff::new(&dir, "wrongnonce", Duration::from_secs(8)).unwrap();
+        let tsq = handoff.tsq_path();
+        let tsr = handoff.tsr_path();
+        let marker = handoff.ready_path();
+        let producer = thread::spawn(move || {
+            let started = Instant::now();
+            while !tsq.exists() {
+                assert!(started.elapsed() < Duration::from_secs(6));
+                thread::sleep(Duration::from_millis(20));
+            }
+            let mut q = parse_request(&fs::read(tsq).unwrap()).unwrap();
+            let requested = q.nonce.unwrap();
+            q.nonce = Some(if requested == 1 { 2 } else { requested - 1 });
+            let data = fs::read(format!("{}/tests/data/rsa-aes.p12", env!("CARGO_MANIFEST_DIR"))).unwrap();
+            let id = pkcs12::open(&data, "test").unwrap();
+            let reply = respond(
+                &id.key,
+                &id.certificate,
+                &id.chain,
+                DigestAlg::Sha256,
+                &q,
+                "1.2.3.4",
+                Time { year: 2026, month: 10, day: 20, hour: 7, minute: 0, second: 0 },
+                19,
+            )
+            .unwrap();
+            fs::write(tsr, reply).unwrap();
+            fs::write(marker, b"").unwrap();
+        });
+        assert!(handoff.timestamp(&query()).is_err());
+        producer.join().unwrap();
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
     fn accepts_real_locally_signed_test_tsr_without_network() {
         let dir = tmp();
         let handoff = ManualTsaHandoff::new(&dir, "freshlocal", Duration::from_secs(8)).unwrap();
