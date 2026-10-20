@@ -6,6 +6,7 @@ on:
       - 'crates/sign/src/lib.rs'
       - 'crates/sign/tests/pdf.rs'
       - 'crates/sign/examples/rfc3161_manual_pades_bt.rs'
+      - 'crates/sign/examples/rfc3161_windows_manual_pades_bt.rs'
       - '.github/workflows/manual-tsa-handoff.yml'
   push:
     branches:
@@ -45,3 +46,21 @@ jobs:
           grep -F 'QTSA=NOT_CHECKED' crates/sign/examples/rfc3161_manual_pades_bt.rs
           grep -F 'EU_DSS=NOT_CHECKED' crates/sign/examples/rfc3161_manual_pades_bt.rs
           grep -F 'QUALIFIED_RELEASE=NO_GO' crates/sign/examples/rfc3161_manual_pades_bt.rs
+  windows-cng-compile-only:
+    runs-on: windows-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@686976e191b89faba57d3206551f0f330d8cb249
+        with:
+          toolchain: stable
+          components: rustfmt
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6
+      - name: Check exact-reference CNG + manual TSA example compiles
+        run: cargo check --locked -p pdfcraft-sign --example rfc3161_windows_manual_pades_bt
+      - name: No physical certificate, PIN, QES, EU DSS or Windows security changes
+        shell: pwsh
+        run: |
+          Write-Host 'CNG_MANUAL_TSA_COMPILES_ONLY; PHYSICAL_TOKEN=NOT_TESTED; QES=NOT_VERIFIED'
