@@ -16,6 +16,8 @@ pub mod graphic;
 #[cfg(target_os = "macos")]
 pub mod keychain;
 pub mod keys;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod manual_tsa;
 pub mod pdf;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod pkcs11;
@@ -31,6 +33,8 @@ pub mod x509;
 
 pub use der::Time;
 pub use graphic::Graphic;
+#[cfg(not(target_arch = "wasm32"))]
+pub use manual_tsa::ManualTsaHandoff;
 pub use keys::{DigestAlg, PrivateKey, PublicKey};
 pub use pdf::{
     Appearance, AppearanceLabels, Detail, DigestCache, Fill, Modification, SignOptions, SignatureInfo, Status, TrustStore, WORDINGS, Words,
