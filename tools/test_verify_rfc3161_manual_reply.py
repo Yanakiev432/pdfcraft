@@ -117,6 +117,15 @@ class OfflinePairTests(unittest.TestCase):
         with self.assertRaises(v.EvidenceError):
             v.verify_pair(self.request, bytes(data))
 
+    def test_non_tstinfo_cms_content_type_rejected(self):
+        token = cms.ContentInfo.load(self.token.dump(), strict=True)
+        token["content"]["encap_content_info"]["content_type"] = "data"
+        wrong = tsp.TimeStampResp({
+            "status": {"status": "granted"}, "time_stamp_token": token,
+        }).dump()
+        with self.assertRaises(v.EvidenceError):
+            v.verify_pair(self.request, wrong)
+
     def test_trailing_der_bytes_rejected(self):
         with self.assertRaises(v.EvidenceError):
             v.verify_pair(self.request, self.response + b"bad")
