@@ -31,6 +31,14 @@ jobs:
             exit 1
           fi
           echo 'EXTERNAL_RELEASE_REF_PINNED=PASS'
+      - name: Public release stays disabled until signed output is independently approved
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          text = Path(".github/workflows/release.yml").read_text()
+          assert ("if: $" + "{{ false }}") in text, "Unapproved public release must not run"
+          print("UNAPPROVED_PUBLIC_RELEASE_DISABLED=PASS")
+          PY
   reject-unapproved-publisher:
     runs-on: windows-latest
     timeout-minutes: 8
