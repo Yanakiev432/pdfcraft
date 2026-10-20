@@ -1,0 +1,44 @@
+name: Manual RFC3161 in-flight handoff (no network)
+on:
+  pull_request:
+    paths:
+      - 'crates/sign/src/manual_tsa.rs'
+      - 'crates/sign/src/lib.rs'
+      - 'crates/sign/examples/rfc3161_manual_pades_bt.rs'
+      - '.github/workflows/manual-tsa-handoff.yml'
+  push:
+    branches:
+      - feature/manual-tsa-live-handoff-20261020
+    paths:
+      - 'crates/sign/src/manual_tsa.rs'
+      - 'crates/sign/src/lib.rs'
+      - 'crates/sign/examples/rfc3161_manual_pades_bt.rs'
+      - '.github/workflows/manual-tsa-handoff.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  native-one-signature-handoff:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@686976e191b89faba57d3206551f0f330d8cb249
+        with:
+          toolchain: stable
+          components: rustfmt
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6
+      - name: Format source (all)
+        run: cargo fmt --all -- --check
+      - name: Execute offline CSPRNG fresh-session, replay, timeout and cryptographic roundtrip checks
+        run: cargo test --locked -p pdfcraft-sign --lib manual_tsa::tests -- --nocapture
+      - name: Compile standalone manual in-flight test CLI
+        run: cargo check --locked -p pdfcraft-sign --example rfc3161_manual_pades_bt
+      - name: Qualification must not be claimed in test CLI
+        shell: bash
+        run: |
+          grep -F 'QTSA=NOT_CHECKED' crates/sign/examples/rfc3161_manual_pades_bt.rs
+          grep -F 'EU_DSS=NOT_CHECKED' crates/sign/examples/rfc3161_manual_pades_bt.rs
+          grep -F 'QUALIFIED_RELEASE=NO_GO' crates/sign/examples/rfc3161_manual_pades_bt.rs
