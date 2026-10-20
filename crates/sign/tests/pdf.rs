@@ -391,10 +391,10 @@ fn manual_handoff_preserves_one_cms_signature_and_embeds_timestamp() {
     let producer = std::thread::spawn(move || {
         let started = std::time::Instant::now();
         let parsed = loop {
-            if let Ok(bytes) = std::fs::read(&input) {
-                if let Ok(q) = pdfcraft_sign::timestamp::parse_request(&bytes) {
-                    break q;
-                }
+            if let Ok(bytes) = std::fs::read(&input)
+                && let Ok(q) = pdfcraft_sign::timestamp::parse_request(&bytes)
+            {
+                break q;
             }
             assert!(started.elapsed() < std::time::Duration::from_secs(8));
             std::thread::sleep(std::time::Duration::from_millis(40));
