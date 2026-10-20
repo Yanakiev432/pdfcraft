@@ -4,6 +4,7 @@ on:
     paths:
       - 'crates/sign/src/manual_tsa.rs'
       - 'crates/sign/src/lib.rs'
+      - 'crates/sign/tests/pdf.rs'
       - 'crates/sign/examples/rfc3161_manual_pades_bt.rs'
       - '.github/workflows/manual-tsa-handoff.yml'
   push:
@@ -34,6 +35,8 @@ jobs:
         run: cargo fmt --all -- --check
       - name: Execute offline CSPRNG fresh-session, replay, timeout and cryptographic roundtrip checks
         run: cargo test --locked -p pdfcraft-sign --lib manual_tsa::tests -- --nocapture
+      - name: Sign one PDF with in-flight local TSR and verify resulting PDF
+        run: cargo test --locked -p pdfcraft-sign --test pdf manual_handoff_preserves_one_cms_signature_and_embeds_timestamp -- --nocapture
       - name: Compile standalone manual in-flight test CLI
         run: cargo check --locked -p pdfcraft-sign --example rfc3161_manual_pades_bt
       - name: Qualification must not be claimed in test CLI
