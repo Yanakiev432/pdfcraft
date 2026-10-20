@@ -1,3 +1,4 @@
+import contextlib
 import hashlib
 import json
 import sqlite3
@@ -96,8 +97,9 @@ class CheckpointStoreTests(unittest.TestCase):
             (d/'checkpoint.sig').write_bytes(other.sign(raw))
             with self.assertRaisesRegex(ValueError, 'rotation'):
                 record_signed_checkpoint(*args[:3], d/'other.pem', other_pin)
-            with sqlite3.connect(d/'state.db') as db:
+            with contextlib.closing(sqlite3.connect(d/'state.db')) as db:
                 db.execute("UPDATE checkpoint_state SET payload=? WHERE id=1", ('{}',))
+                db.commit()
             (d/'checkpoint.sig').write_bytes(key.sign(raw))
             with self.assertRaises(ValueError):
                 record_signed_checkpoint(*args)
