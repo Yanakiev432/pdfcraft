@@ -376,6 +376,55 @@ impl TimestampAuthority for TestTsa {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn manual_handoff_preserves_one_cms_signature_and_embeds_timestamp() {
+    let mut entropy = [0_u8; 16];
+    getrandom::fill(&mut entropy).unwrap();
+    let nonce = entropy.iter().map(|b| format!("{b:02x}")).collect::<String>();
+    let directory = std::env::temp_dir().join(format!("pdfcraft-manual-full-sig-{nonce}"));
+    std::fs::create_dir(&directory).unwrap();
+    let handoff = pdfcraft_sign::ManualTsaHandoff::new(&directory, "samecms1", std::time::Duration::from_secs(10)).unwrap();
+    let input = handoff.tsq_path();
+    let output = handoff.tsr_path();
+    let marker = handoff.ready_path();
+    let producer = std::thread::spawn(move || {
+        let started = std::time::Instant::now();
+        let parsed = loop {
+            if let Ok(bytes) = std::fs::read(&input)
+                && let Ok(q) = pdfcraft_sign::timestamp::parse_request(&bytes)
+            {
+                break q;
+            }
+            assert!(started.elapsed() < std::time::Duration::from_secs(8));
+            std::thread::sleep(std::time::Duration::from_millis(40));
+        };
+        let tsa = pkcs12::open(&data("rsa-aes.p12"), "test").unwrap();
+        let reply = pdfcraft_sign::timestamp::respond(
+            &tsa.key,
+            &tsa.certificate,
+            &tsa.chain,
+            pdfcraft_sign::DigestAlg::Sha256,
+            &parsed,
+            "1.2.3.4",
+            Time { year: 2026, month: 10, day: 20, hour: 9, minute: 0, second: 0 },
+            17,
+        )
+        .unwrap();
+        std::fs::write(&output, reply).unwrap();
+        std::fs::write(&marker, b"").unwrap();
+    });
+    let signer = pkcs12::open(&data("ec-p256.p12"), "test").unwrap();
+    let signed = pdfcraft_sign::sign_with_timestamp(&open(&fixture()), &signer, &opts(), &handoff).unwrap();
+    producer.join().unwrap();
+    let found = signatures(&open(&signed), &signed, &TrustStore::default());
+    let sig = found.into_iter().find(|s| s.signed && !s.doc_timestamp).unwrap();
+    assert!(sig.timestamp, "the original CMS signature value is timestamped");
+    assert_eq!(sig.signed_len, signed.len(), "the entire latest PDF revision must be signed");
+    assert_ne!(sig.status, Status::Invalid, "cryptographic signature must be intact");
+    std::fs::remove_dir_all(directory).unwrap();
+}
+
 #[test]
 fn signing_with_a_timestamp_embeds_a_verified_rfc3161_token() {
     let id = pkcs12::open(&data("ec-p256.p12"), "test").unwrap();
