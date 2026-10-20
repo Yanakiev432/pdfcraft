@@ -52,10 +52,7 @@ fn about_dialog_shows_independent_fork_identity_and_links() {
     });
     // Modified forks must not embed the upstream ArtCraft logo or wordmark.
     // Check our neutral text widgets rather than third-party trademark images.
-    assert!(
-        h.query_all_by_label("Independent PdfCraft fork").count() >= 1,
-        "neutral, non-trademarked About dialog identity"
-    );
+    assert!(h.query_all_by_label("Independent PdfCraft fork").count() >= 1, "neutral, non-trademarked About dialog identity");
     assert!(h.query_all_by_label("PDF").count() >= 1, "neutral PDF mark");
     h.get_by_label("Join our Discord").click();
     h.run_steps(2);
