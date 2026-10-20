@@ -108,9 +108,7 @@ impl TimestampAuthority for ManualTsaHandoff {
                     return Err(invalid("response changed or exceeds 4 MiB"));
                 }
                 let mut bytes = Vec::with_capacity(opened.len() as usize);
-                file.take(MAX_RESPONSE + 1)
-                    .read_to_end(&mut bytes)
-                    .map_err(|e| io_error("read bounded response", e))?;
+                file.take(MAX_RESPONSE + 1).read_to_end(&mut bytes).map_err(|e| io_error("read bounded response", e))?;
                 if bytes.len() < 10 || bytes.len() as u64 > MAX_RESPONSE {
                     return Err(invalid("response changed or exceeds 4 MiB"));
                 }
