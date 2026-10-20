@@ -36,7 +36,8 @@ jobs:
           python3 - <<'PY'
           from pathlib import Path
           text = Path(".github/workflows/release.yml").read_text()
-          assert ("if: $" + "{{ false }}") in text, "Unapproved public release must not run"
+          assert "needs: fail-closed-release-preflight" in text, "Release job must depend on denying preflight"
+          assert "PUBLIC_RELEASE_NO_GO" in text and "exit 1" in text, "Release preflight must explicitly deny until reviewed"
           print("UNAPPROVED_PUBLIC_RELEASE_DISABLED=PASS")
           PY
   reject-unapproved-publisher:
