@@ -97,26 +97,65 @@ fn bad(message: impl Into<String>) -> SignError {
     SignError::Malformed(format!("RFC 3161: {}", message.into()))
 }
 
-/// Decode a `TimeStampReq` as [`TimestampQuery::encode`] wrote it.
+/// Decode a DER RFC 3161 \`TimeStampReq\`, explicitly rejecting ambiguous
+/// optional fields, duplicate values and unsupported extensions.
+///
+/// RFC 3161 requires Version=1 and ordered optional fields:
+/// reqPolicy, nonce, certReq, extensions. We do not support requests carrying
+/// extensions; silently ignoring them would be unsafe for a signed TSA reply.
 pub fn parse_request(bytes: &[u8]) -> Result<TimestampQuery, SignError> {
     if bytes.is_empty() || bytes.len() > MAX_REQUEST {
         return Err(bad("request is empty or exceeds the 1 MiB limit"));
     }
     let fields = Tlv::parse_all(bytes)?.expect(tag::SEQUENCE, "TimeStampReq")?.children()?;
     let mut it = fields.into_iter();
-    let _version = it.next().ok_or_else(|| bad("missing version"))?.u64()?;
-    let imprint = it.next().ok_or_else(|| bad("missing message imprint"))?.children()?;
-    let alg_oid =
-        imprint.first().ok_or_else(|| bad("missing imprint algorithm"))?.children()?.first().ok_or_else(|| bad("missing algorithm OID"))?.oid()?;
+    let version = it.next().ok_or_else(|| bad("missing version"))?.expect(tag::INTEGER, "version")?.u64()?;
+    if version != 1 {
+        return Err(bad("TimeStampReq version must be 1"));
+    }
+    let imprint = it.next().ok_or_else(|| bad("missing message imprint"))?.expect(tag::SEQUENCE, "messageImprint")?.children()?;
+    if imprint.len() != 2 {
+        return Err(bad("messageImprint must contain exactly algorithm and digest"));
+    }
+    let alg = imprint[0].expect(tag::SEQUENCE, "AlgorithmIdentifier")?.children()?;
+    if alg.is_empty() || alg.len() > 2 {
+        return Err(bad("imprint algorithm must contain an OID and optional NULL"));
+    }
+    let alg_oid = alg[0].expect(tag::OID, "algorithm OID")?.oid()?;
+    if alg.len() == 2 && (alg[1].tag != tag::NULL || !alg[1].value.is_empty()) {
+        return Err(bad("imprint algorithm has unsupported parameters"));
+    }
     let digest = DigestAlg::from_oid(&alg_oid).ok_or_else(|| bad("unsupported imprint digest algorithm"))?;
-    let hash = imprint.get(1).ok_or_else(|| bad("missing imprint digest"))?.expect(tag::OCTET_STRING, "imprint digest")?.value.to_vec();
+    let hash = imprint[1].expect(tag::OCTET_STRING, "imprint digest")?.value.to_vec();
     let mut q = TimestampQuery::new(digest, hash)?;
+    let mut stage = 0_u8;
     for f in it {
-        match f.tag {
-            tag::OID => q.policy = Some(f.oid()?),
-            tag::INTEGER => q.nonce = Some(f.u64()?),
-            tag::BOOLEAN => q.certificate_request = f.value.first() == Some(&0xFF),
-            _ => {}
+        let current = match f.tag {
+            tag::OID => 1,
+            tag::INTEGER => 2,
+            tag::BOOLEAN => 3,
+            _ => return Err(bad("unsupported or unknown TimeStampReq optional field")),
+        };
+        if current <= stage {
+            return Err(bad("duplicate or out-of-order TimeStampReq optional field"));
+        }
+        stage = current;
+        match current {
+            1 => q.policy = Some(f.oid()?),
+            2 => {
+                let nonce = f.u64()?;
+                if nonce == 0 {
+                    return Err(bad("TimeStampReq nonce must be positive"));
+                }
+                q.nonce = Some(nonce);
+            }
+            3 => {
+                if f.value != [0x00] && f.value != [0xff] {
+                    return Err(bad("TimeStampReq certReq has invalid DER BOOLEAN encoding"));
+                }
+                q.certificate_request = f.value == [0xff];
+            }
+            _ => unreachable!(),
         }
     }
     Ok(q)
