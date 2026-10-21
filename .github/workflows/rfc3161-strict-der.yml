@@ -1,0 +1,36 @@
+name: Strict RFC3161 DER request gate
+on:
+  pull_request:
+    paths:
+      - 'crates/sign/src/timestamp.rs'
+      - '.github/workflows/rfc3161-strict-der.yml'
+  push:
+    branches:
+      - feature/rfc3161-strict-der-request-20261021
+    paths:
+      - 'crates/sign/src/timestamp.rs'
+      - '.github/workflows/rfc3161-strict-der.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  strict-der-no-network:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@686976e191b89faba57d3206551f0f330d8cb249
+        with:
+          toolchain: stable
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6
+      - name: Rust formatting
+        run: cargo fmt --all -- --check
+      - name: Reject malformed TSQ fields without any network
+        run: cargo test --locked -p pdfcraft-sign --lib timestamp::tests -- --nocapture
+      - name: Clippy strict request parser tests
+        run: cargo clippy --locked -p pdfcraft-sign --lib --tests -- -D warnings
+      - name: Qualification still requires external validation
+        run: echo 'RFC3161_REQUEST_DER=PASS; TRUSTED_QTSA=NOT_CHECKED; PADES_QUALIFIED=NO_GO'

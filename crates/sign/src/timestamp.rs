@@ -97,26 +97,67 @@ fn bad(message: impl Into<String>) -> SignError {
     SignError::Malformed(format!("RFC 3161: {}", message.into()))
 }
 
-/// Decode a `TimeStampReq` as [`TimestampQuery::encode`] wrote it.
+/// Decode a DER RFC 3161 \`TimeStampReq\`, explicitly rejecting ambiguous
+/// optional fields, duplicate values and unsupported extensions.
+///
+/// RFC 3161 requires Version=1 and ordered optional fields:
+/// reqPolicy, nonce, certReq, extensions. We do not support requests carrying
+/// extensions; silently ignoring them would be unsafe for a signed TSA reply.
 pub fn parse_request(bytes: &[u8]) -> Result<TimestampQuery, SignError> {
     if bytes.is_empty() || bytes.len() > MAX_REQUEST {
         return Err(bad("request is empty or exceeds the 1 MiB limit"));
     }
     let fields = Tlv::parse_all(bytes)?.expect(tag::SEQUENCE, "TimeStampReq")?.children()?;
     let mut it = fields.into_iter();
-    let _version = it.next().ok_or_else(|| bad("missing version"))?.u64()?;
-    let imprint = it.next().ok_or_else(|| bad("missing message imprint"))?.children()?;
-    let alg_oid =
-        imprint.first().ok_or_else(|| bad("missing imprint algorithm"))?.children()?.first().ok_or_else(|| bad("missing algorithm OID"))?.oid()?;
+    let version = it.next().ok_or_else(|| bad("missing version"))?.expect(tag::INTEGER, "version")?.u64()?;
+    if version != 1 {
+        return Err(bad("TimeStampReq version must be 1"));
+    }
+    let imprint = it.next().ok_or_else(|| bad("missing message imprint"))?.expect(tag::SEQUENCE, "messageImprint")?.children()?;
+    if imprint.len() != 2 {
+        return Err(bad("messageImprint must contain exactly algorithm and digest"));
+    }
+    let alg = imprint[0].expect(tag::SEQUENCE, "AlgorithmIdentifier")?.children()?;
+    if alg.is_empty() || alg.len() > 2 {
+        return Err(bad("imprint algorithm must contain an OID and optional NULL"));
+    }
+    let alg_oid = alg[0].expect(tag::OID, "algorithm OID")?.oid()?;
+    if alg.len() == 2 && (alg[1].tag != tag::NULL || !alg[1].value.is_empty()) {
+        return Err(bad("imprint algorithm has unsupported parameters"));
+    }
     let digest = DigestAlg::from_oid(&alg_oid).ok_or_else(|| bad("unsupported imprint digest algorithm"))?;
-    let hash = imprint.get(1).ok_or_else(|| bad("missing imprint digest"))?.expect(tag::OCTET_STRING, "imprint digest")?.value.to_vec();
+    let hash = imprint[1].expect(tag::OCTET_STRING, "imprint digest")?.value.to_vec();
     let mut q = TimestampQuery::new(digest, hash)?;
+    // RFC 3161 certReq DEFAULT FALSE when absent in the DER sequence.
+    q.certificate_request = false;
+    let mut stage = 0_u8;
     for f in it {
-        match f.tag {
-            tag::OID => q.policy = Some(f.oid()?),
-            tag::INTEGER => q.nonce = Some(f.u64()?),
-            tag::BOOLEAN => q.certificate_request = f.value.first() == Some(&0xFF),
-            _ => {}
+        let current = match f.tag {
+            tag::OID => 1,
+            tag::INTEGER => 2,
+            tag::BOOLEAN => 3,
+            _ => return Err(bad("unsupported or unknown TimeStampReq optional field")),
+        };
+        if current <= stage {
+            return Err(bad("duplicate or out-of-order TimeStampReq optional field"));
+        }
+        stage = current;
+        match current {
+            1 => q.policy = Some(f.oid()?),
+            2 => {
+                let nonce = f.u64()?;
+                if nonce == 0 {
+                    return Err(bad("TimeStampReq nonce must be positive"));
+                }
+                q.nonce = Some(nonce);
+            }
+            3 => {
+                if f.value != [0x00] && f.value != [0xff] {
+                    return Err(bad("TimeStampReq certReq has invalid DER BOOLEAN encoding"));
+                }
+                q.certificate_request = f.value == [0xff];
+            }
+            _ => return Err(bad("unexpected TimeStampReq optional field stage")),
         }
     }
     Ok(q)
@@ -232,6 +273,54 @@ pub fn respond(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn encoded_with_fields(version: u64, optionals: Vec<Vec<u8>>) -> Vec<u8> {
+        let imprint = der::seq(&[&DigestAlg::Sha256.algorithm(), &der::octets(&[0x5a; 32])]);
+        let mut parts = vec![der::int(version), imprint];
+        parts.extend(optionals);
+        let refs: Vec<&[u8]> = parts.iter().map(Vec::as_slice).collect();
+        der::seq(&refs)
+    }
+
+    #[test]
+    fn request_parser_rejects_non_v1_and_unknown_extensions() {
+        assert!(parse_request(&encoded_with_fields(2, vec![])).is_err());
+        assert!(parse_request(&encoded_with_fields(1, vec![vec![0xa0, 0x02, 0x30, 0x00]])).is_err());
+        assert!(parse_request(&encoded_with_fields(1, vec![der::int(9), vec![0x05, 0x00]])).is_err());
+    }
+
+    #[test]
+    fn request_parser_rejects_duplicate_reordered_and_zero_nonce() {
+        assert!(parse_request(&encoded_with_fields(1, vec![der::int(9), der::int(10)])).is_err());
+        assert!(parse_request(&encoded_with_fields(1, vec![der::int(9), der::try_oid("1.2.3").unwrap()])).is_err());
+        assert!(parse_request(&encoded_with_fields(1, vec![der::int(0)])).is_err());
+        assert!(parse_request(&encoded_with_fields(1, vec![der::boolean(true), der::int(9)])).is_err());
+        assert!(parse_request(&encoded_with_fields(1, vec![der::boolean(true), der::boolean(true)])).is_err());
+    }
+
+    #[test]
+    fn request_parser_rejects_malformed_boolean_and_imprint() {
+        assert!(parse_request(&encoded_with_fields(1, vec![vec![0x01, 0x01, 0x01]])).is_err());
+        let alg = DigestAlg::Sha256.algorithm();
+        let digest = der::octets(&[0x5a; 32]);
+        let extra = der::seq(&[&alg, &digest, &der::int(1)]);
+        let broken = der::seq(&[&der::int(1), &extra]);
+        assert!(parse_request(&broken).is_err());
+        let bad_alg = der::seq(&[&alg, &der::octets(&[0x5a; 31])]);
+        assert!(parse_request(&der::seq(&[&der::int(1), &bad_alg])).is_err());
+    }
+
+    #[test]
+    fn request_parser_keeps_valid_minimal_optional_forms() {
+        let minimal = encoded_with_fields(1, vec![]);
+        let got = parse_request(&minimal).unwrap();
+        assert_eq!(got.nonce, None);
+        assert!(!got.certificate_request);
+        let nonce_cert = encoded_with_fields(1, vec![der::int(83), der::boolean(true)]);
+        let got = parse_request(&nonce_cert).unwrap();
+        assert_eq!(got.nonce, Some(83));
+        assert!(got.certificate_request);
+    }
 
     #[test]
     fn request_round_trips_with_options() {
