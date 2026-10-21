@@ -1,0 +1,36 @@
+name: Patched TLS trust roots lockfile gate
+on:
+  pull_request:
+    paths:
+      - 'Cargo.lock'
+      - 'tools/check_rustsec_tls_trust.py'
+      - '.github/workflows/tls-trust-lockfile-gate.yml'
+  push:
+    branches:
+      - feature/dss-baseline-profile-boundary-20261021
+    paths:
+      - 'Cargo.lock'
+      - 'tools/check_rustsec_tls_trust.py'
+      - '.github/workflows/tls-trust-lockfile-gate.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  patched-rustsec-trust-chain:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Reject vulnerable cert verifier and root bundle dependencies
+        run: python -B tools/check_rustsec_tls_trust.py --self-test
+      - name: Do not treat TLS patch as qualified EU Trusted List proof
+        shell: bash
+        run: |
+          echo 'RUSTSEC-2026-0382=PATCHED; RUSTSEC-2026-0383=PATCHED'
+          echo 'EIDAS_QTSA=NOT_CHECKED; REAL_HARDWARE=NOT_TESTED; TRUSTED_RELEASE=NO_GO'

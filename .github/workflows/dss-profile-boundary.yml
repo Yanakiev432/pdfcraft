@@ -1,0 +1,49 @@
+name: Independent EU DSS PAdES profile boundary
+on:
+  pull_request:
+    paths:
+      - 'tools/eidas_dss_profile_boundary.py'
+      - 'tools/test_eidas_dss_profile_boundary.py'
+      - 'docs/EIDAS_TLV6_PADES_PROFILE_GATE_20261021.md'
+      - '.github/workflows/dss-profile-boundary.yml'
+  push:
+    branches:
+      - feature/dss-baseline-profile-boundary-20261021
+    paths:
+      - 'tools/eidas_dss_profile_boundary.py'
+      - 'tools/test_eidas_dss_profile_boundary.py'
+      - 'docs/EIDAS_TLV6_PADES_PROFILE_GATE_20261021.md'
+      - '.github/workflows/dss-profile-boundary.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  offline-negative-proof:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Synthetic no-network DSS PAdES B vs B-T/LT/LTA classification checks
+        run: python -B tools/test_eidas_dss_profile_boundary.py
+      - name: No synthetic QTSA positive claim is allowed
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json,sys
+          sys.path.insert(0,"tools")
+          import test_eidas_dss_profile_boundary as tests
+          import eidas_dss_profile_boundary as parser
+          response,raw,summary=tests.fixture("PAdES-BASELINE-T",[{"Timestamp":{"Indication":"TOTAL_PASSED"}}])
+          data=parser.classify_dss_response(raw,summary)
+          assert data["dss_profile_structural_level"]=="B-T"
+          assert data["qualified_rfc3161_qtsa_at_generation_time"]=="NOT_CHECKED"
+          assert data["qualified_pades_b_t_b_lt_b_lta_acceptance"]=="NO_GO"
+          assert not data["release_ready"]
+          print("B_T_FORMAT_ONLY=PASS; QTSA_VERIFIED=NO; TRUSTED_RELEASE=NO_GO")
+          PY
