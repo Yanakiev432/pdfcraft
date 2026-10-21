@@ -128,6 +128,8 @@ pub fn parse_request(bytes: &[u8]) -> Result<TimestampQuery, SignError> {
     let digest = DigestAlg::from_oid(&alg_oid).ok_or_else(|| bad("unsupported imprint digest algorithm"))?;
     let hash = imprint[1].expect(tag::OCTET_STRING, "imprint digest")?.value.to_vec();
     let mut q = TimestampQuery::new(digest, hash)?;
+    // RFC 3161 certReq DEFAULT FALSE when absent in the DER sequence.
+    q.certificate_request = false;
     let mut stage = 0_u8;
     for f in it {
         let current = match f.tag {
