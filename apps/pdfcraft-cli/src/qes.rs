@@ -13,7 +13,13 @@ pub(crate) fn verify(args: &[String]) -> Result<String, String> {
     if !Path::new(pdf).is_file() || !Path::new(adapter).is_file() || !Path::new(python).is_file() {
         return Err("PDF, adapter and Python executable must exist".into());
     }
-    let output = Command::new(python)
+    let mut command = Command::new(python);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(0x08000000); // CREATE_NO_WINDOW
+    }
+    let output = command
         .arg("-I")
         .arg(adapter)
         .arg(pdf)
