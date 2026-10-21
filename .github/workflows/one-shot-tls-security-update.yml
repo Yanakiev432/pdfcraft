@@ -1,0 +1,52 @@
+name: One-shot TLS trust dependency security patch
+on:
+  push:
+    branches:
+      - feature/rfc3161-strict-der-request-20261021
+    paths:
+      - '.github/workflows/one-shot-tls-security-update.yml'
+permissions:
+  contents: write
+jobs:
+  scoped-cargo-lock-update:
+    if: github.repository == 'Yanakiev432/pdfcraft'
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: true
+          fetch-depth: 1
+      - uses: dtolnay/rust-toolchain@686976e191b89faba57d3206551f0f330d8cb249
+        with:
+          toolchain: stable
+      - name: Update only vulnerable locked TLS trust dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo update -p rustls-webpki --precise 0.103.16
+          cargo update -p webpki-root-certs --precise 1.0.10
+          python3 - <<'PY'
+          import tomllib
+          with open('Cargo.lock','rb') as f:d=tomllib.load(f)
+          packages={x['name']:x['version'] for x in d['package']}
+          assert packages['rustls-webpki']=='0.103.16',packages['rustls-webpki']
+          assert packages['webpki-root-certs']=='1.0.10',packages['webpki-root-certs']
+          print('RUSTSEC_2026_0382_0383_PATCHED_IN_LOCK=PASS')
+          PY
+          git diff --check
+          changed="$(git diff --name-only)"
+          if [ "$changed" != "Cargo.lock" ]; then
+            echo "FAIL: expected only Cargo.lock modification: $changed"
+            exit 1
+          fi
+      - name: Commit only the reviewed lockfile correction
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -- Cargo.lock
+          git commit -m 'fix(deps): patch RUSTSEC-2026-0382 and 0383 TLS certificate trust'
+          git push origin HEAD:feature/rfc3161-strict-der-request-20261021
+          echo 'SCOPED_TLS_DEPENDENCY_PATCH_PUSHED=PASS'
