@@ -199,11 +199,16 @@ mod tests {
         let marker = handoff.ready_path();
         let producer = thread::spawn(move || {
             let started = Instant::now();
-            while !tsq.exists() {
-                assert!(started.elapsed() < Duration::from_secs(6));
+            // The TSQ is created exclusively before it is fully written;
+            // seeing the path does not prove its DER contents are complete.
+            let mut q = loop {
+                let parsed = fs::read(&tsq).ok().and_then(|bytes| parse_request(&bytes).ok());
+                if let Some(request) = parsed {
+                    break request;
+                }
+                assert!(started.elapsed() < Duration::from_secs(6), "test TSQ was not fully written");
                 thread::sleep(Duration::from_millis(20));
-            }
-            let mut q = parse_request(&fs::read(tsq).unwrap()).unwrap();
+            };
             let requested = q.nonce.unwrap();
             q.nonce = Some(if requested == 1 { 2 } else { requested - 1 });
             let data = fs::read(format!("{}/tests/data/rsa-aes.p12", env!("CARGO_MANIFEST_DIR"))).unwrap();
