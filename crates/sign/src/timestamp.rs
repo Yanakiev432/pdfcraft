@@ -272,6 +272,54 @@ pub fn respond(
 mod tests {
     use super::*;
 
+    fn encoded_with_fields(version: u64, optionals: Vec<Vec<u8>>) -> Vec<u8> {
+        let imprint = der::seq(&[&DigestAlg::Sha256.algorithm(), &der::octets(&vec![0x5a; 32])]);
+        let mut parts = vec![der::int(version), imprint];
+        parts.extend(optionals);
+        let refs: Vec<&[u8]> = parts.iter().map(Vec::as_slice).collect();
+        der::seq(&refs)
+    }
+
+    #[test]
+    fn request_parser_rejects_non_v1_and_unknown_extensions() {
+        assert!(parse_request(&encoded_with_fields(2, vec![])).is_err());
+        assert!(parse_request(&encoded_with_fields(1, vec![vec![0xa0, 0x02, 0x30, 0x00]])).is_err());
+        assert!(parse_request(&encoded_with_fields(1, vec![der::int(9), vec![0x05, 0x00]])).is_err());
+    }
+
+    #[test]
+    fn request_parser_rejects_duplicate_reordered_and_zero_nonce() {
+        assert!(parse_request(&encoded_with_fields(1, vec![der::int(9), der::int(10)])).is_err());
+        assert!(parse_request(&encoded_with_fields(1, vec![der::int(9), der::try_oid("1.2.3").unwrap()])).is_err());
+        assert!(parse_request(&encoded_with_fields(1, vec![der::int(0)])).is_err());
+        assert!(parse_request(&encoded_with_fields(1, vec![der::boolean(true), der::int(9)])).is_err());
+        assert!(parse_request(&encoded_with_fields(1, vec![der::boolean(true), der::boolean(true)])).is_err());
+    }
+
+    #[test]
+    fn request_parser_rejects_malformed_boolean_and_imprint() {
+        assert!(parse_request(&encoded_with_fields(1, vec![vec![0x01, 0x01, 0x01]])).is_err());
+        let alg = DigestAlg::Sha256.algorithm();
+        let digest = der::octets(&vec![0x5a; 32]);
+        let extra = der::seq(&[&alg, &digest, &der::int(1)]);
+        let broken = der::seq(&[&der::int(1), &extra]);
+        assert!(parse_request(&broken).is_err());
+        let bad_alg = der::seq(&[&alg, &der::octets(&vec![0x5a; 31])]);
+        assert!(parse_request(&der::seq(&[&der::int(1), &bad_alg])).is_err());
+    }
+
+    #[test]
+    fn request_parser_keeps_valid_minimal_optional_forms() {
+        let minimal = encoded_with_fields(1, vec![]);
+        let got = parse_request(&minimal).unwrap();
+        assert_eq!(got.nonce, None);
+        assert!(!got.certificate_request);
+        let nonce_cert = encoded_with_fields(1, vec![der::int(83), der::boolean(true)]);
+        let got = parse_request(&nonce_cert).unwrap();
+        assert_eq!(got.nonce, Some(83));
+        assert!(got.certificate_request);
+    }
+
     #[test]
     fn request_round_trips_with_options() {
         let imprint = DigestAlg::Sha256.digest(&[b"document"]);
