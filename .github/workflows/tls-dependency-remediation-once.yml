@@ -1,0 +1,47 @@
+name: One-shot TLS certificate trust remediation
+on:
+  push:
+    branches: [feature/dss-baseline-profile-boundary-20261021]
+    paths: ['.github/workflows/tls-dependency-remediation-once.yml']
+permissions:
+  contents: write
+jobs:
+  security-lockfile-refresh-once:
+    if: github.repository == 'Yanakiev432/pdfcraft'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: true
+          fetch-depth: 1
+      - uses: dtolnay/rust-toolchain@686976e191b89faba57d3206551f0f330d8cb249
+        with:
+          toolchain: stable
+      - name: Upgrade ONLY the compromised TLS certificate validation dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo update -p rustls-webpki --precise 0.103.16
+          cargo update -p webpki-root-certs --precise 1.0.10
+          python3 - <<'PY'
+          import tomllib
+          from pathlib import Path
+          lock=tomllib.loads(Path("Cargo.lock").read_text())
+          expected={"rustls-webpki":"0.103.16","webpki-root-certs":"1.0.10"}
+          for name,version in expected.items():
+            rows={p["version"] for p in lock["package"] if p["name"]==name}
+            if rows!={version}:raise SystemExit(f"Unexpected locked {name} versions: {rows}")
+            print(f"TLS_PATCH_PIN_{name}={version}")
+          PY
+          git diff --check
+          changed=$(git diff --name-only)
+          if [ "$changed" != "Cargo.lock" ]; then
+            echo "REFUSE_NON_LOCKFILE_CHANGE: $changed"; exit 1
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -- Cargo.lock
+          git commit -m 'fix(security): patch compromised emSign TLS trust dependencies RUSTSEC-2026-0382/0383'
+          git push origin HEAD:feature/dss-baseline-profile-boundary-20261021
+          echo 'SECURITY_DEPENDENCIES_UPDATED=PASS'
