@@ -157,7 +157,7 @@ pub fn parse_request(bytes: &[u8]) -> Result<TimestampQuery, SignError> {
                 }
                 q.certificate_request = f.value == [0xff];
             }
-            _ => unreachable!(),
+            _ => return Err(bad("unexpected TimeStampReq optional field stage")),
         }
     }
     Ok(q)
@@ -275,7 +275,7 @@ mod tests {
     use super::*;
 
     fn encoded_with_fields(version: u64, optionals: Vec<Vec<u8>>) -> Vec<u8> {
-        let imprint = der::seq(&[&DigestAlg::Sha256.algorithm(), &der::octets(&vec![0x5a; 32])]);
+        let imprint = der::seq(&[&DigestAlg::Sha256.algorithm(), &der::octets(&[0x5a; 32])]);
         let mut parts = vec![der::int(version), imprint];
         parts.extend(optionals);
         let refs: Vec<&[u8]> = parts.iter().map(Vec::as_slice).collect();
@@ -302,11 +302,11 @@ mod tests {
     fn request_parser_rejects_malformed_boolean_and_imprint() {
         assert!(parse_request(&encoded_with_fields(1, vec![vec![0x01, 0x01, 0x01]])).is_err());
         let alg = DigestAlg::Sha256.algorithm();
-        let digest = der::octets(&vec![0x5a; 32]);
+        let digest = der::octets(&[0x5a; 32]);
         let extra = der::seq(&[&alg, &digest, &der::int(1)]);
         let broken = der::seq(&[&der::int(1), &extra]);
         assert!(parse_request(&broken).is_err());
-        let bad_alg = der::seq(&[&alg, &der::octets(&vec![0x5a; 31])]);
+        let bad_alg = der::seq(&[&alg, &der::octets(&[0x5a; 31])]);
         assert!(parse_request(&der::seq(&[&der::int(1), &bad_alg])).is_err());
     }
 
