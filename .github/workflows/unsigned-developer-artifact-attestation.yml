@@ -1,0 +1,90 @@
+name: Unsigned PdfCraft developer ZIP with public Sigstore provenance
+on:
+  push:
+    branches:
+      - feature/free-sigstore-developer-artifact-20261021
+    paths:
+      - '.github/workflows/unsigned-developer-artifact-attestation.yml'
+      - 'docs/UNSIGNED_DEVELOPER_PROVENANCE.md'
+  workflow_dispatch:
+permissions:
+  contents: read
+  id-token: write
+  attestations: write
+  artifact-metadata: write
+jobs:
+  unsigned-test-binary-provenance:
+    if: github.repository == 'Yanakiev432/pdfcraft'
+    runs-on: windows-latest
+    timeout-minutes: 55
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@686976e191b89faba57d3206551f0f330d8cb249
+        with:
+          toolchain: stable
+          targets: x86_64-pc-windows-msvc
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6
+      - name: Build source-linked unsigned Windows x64 developer executables
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $env:PDFCRAFT_REQUIRE_WINRES='1'
+          $env:PDFCRAFT_BUILD_SHA=$env:GITHUB_SHA
+          cargo build --locked --release -p pdfcraft -p pdfcraft-cli --target x86_64-pc-windows-msvc
+          if($LASTEXITCODE -ne 0){throw 'Source reproducible build failed'}
+      - name: Negative Authenticode trust gate and source build manifest
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $folder=Join-Path $PWD 'dist/unsigned-dev'
+          [void][IO.Directory]::CreateDirectory($folder)
+          foreach($exe in @('pdfcraft.exe','pdfcraft-cli.exe')){
+            $src=Join-Path $PWD ('target/x86_64-pc-windows-msvc/release/'+$exe)
+            if(-not [IO.File]::Exists($src)){throw ('Missing compiled executable: '+$exe)}
+            $signature=Get-AuthenticodeSignature -LiteralPath $src
+            if($signature.Status -eq 'Valid'){
+              throw 'UNEXPECTED_SIGNED_BINARY: developer-only lane must not replace signed-release pipeline'
+            }
+            Copy-Item -LiteralPath $src -Destination $folder
+          }
+          foreach($notice in @('LICENSE-MIT','LICENSE-APACHE','NOTICE')){
+            Copy-Item -LiteralPath (Join-Path $PWD $notice) -Destination $folder
+          }
+          $md=@'
+          UNSIGNED DEVELOPER PREVIEW — NOT A TRUSTED WINDOWS RELEASE
+          These binaries are compiled from the recorded GitHub source commit.
+          They are NOT signed by an approved Authenticode publisher and may be
+          blocked by Windows Smart App Control. DO NOT disable SAC or WDAC.
+          The accompanying GitHub Sigstore attestation verifies build provenance
+          only, NOT a qualified eIDAS QES, TSA, Code Signing EKU or MSI signature.
+          DO NOT install, execute or redistribute as a trusted release.
+          '@
+          [IO.File]::WriteAllText((Join-Path $folder 'UNSIGNED-TEST-ONLY.txt'),$md)
+          $items=@(Get-ChildItem $folder -File | ForEach-Object {
+            [pscustomobject]@{name=$_.Name;sha256=(Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant();bytes=$_.Length}
+          })
+          $manifest=[ordered]@{schema='craft.unsigned-preview-provenance.v1';repository=$env:GITHUB_REPOSITORY;source_commit=$env:GITHUB_SHA;workflow=$env:GITHUB_WORKFLOW;files=$items;authenticode='UNSIGNED_DEVELOPER_BUILD';qualified_eidas='NOT_CHECKED';trusted_windows_release=$false}
+          $manifest|ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $folder 'build-manifest.json') -Encoding utf8
+          Compress-Archive -Path (Join-Path $folder '*') -DestinationPath (Join-Path $PWD 'dist/pdfcraft-UNSIGNED-DEV-windows-x64.zip') -CompressionLevel Optimal
+          Write-Host 'DEVELOPER_ONLY_EXE_AUTHENTICODE=UNSIGNED; TEST_ZIP_CREATED=PASS'
+      - name: Generate public Sigstore/SLSA provenance for exact ZIP SHA256
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6
+        with:
+          subject-path: dist/pdfcraft-UNSIGNED-DEV-windows-x64.zip
+      - name: Upload only marked unsigned developer artifact; never create release
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: pdfcraft-UNSIGNED-DEVELOPER-ONLY-x64
+          path: dist/pdfcraft-UNSIGNED-DEV-windows-x64.zip
+          retention-days: 7
+          if-no-files-found: error
+      - name: Never claim Windows trusted release
+        shell: pwsh
+        run: |
+          Write-Host 'SIGSTORE_SOURCE_PROVENANCE=PASS'
+          Write-Host 'WINDOWS_AUTHENTICODE_PUBLISHER=NOT_SIGNED'
+          Write-Host 'WINDOWS_SAC_COMPATIBILITY=NOT_VERIFIED'
+          Write-Host 'SIGNPATH_FOUNDATION_APPROVAL=DECLINED'
+          Write-Host 'QES_AND_QTSA=NOT_CHECKED'
