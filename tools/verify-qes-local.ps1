@@ -4,7 +4,11 @@
 param(
     [Parameter(Mandatory = $true, Position = 0)]
     [ValidateNotNullOrEmpty()]
-    [string]$PdfPath
+    [string]$PdfPath,
+    # Default must match the pinned local Tomcat connector (18080).
+    # 8080 remains an explicit option for other local-only installations.
+    [ValidateSet(8080,18080)]
+    [int]$DssPort = 18080
 )
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
@@ -25,11 +29,18 @@ if ([IO.Path]::GetExtension($document) -ine '.pdf') {
     throw 'Only saved .pdf files are accepted.'
 }
 
-# Do not let an inherited endpoint override redirect the signed document elsewhere.
+# Never trust an inherited endpoint. Pin the host/path and accept only two
+# locally configured ports; the Python adapter also independently forbids
+# non-loopback endpoints, proxies and redirects.
 Remove-Item 'Env:PDFCRAFT_DSS_LOCAL_ENDPOINT' -ErrorAction SilentlyContinue
-$json = & $python -I $adapter $document
-if ($LASTEXITCODE -ne 0) {
-    throw 'Independent EU DSS verification failed or the loopback service is unavailable.'
+try {
+    $env:PDFCRAFT_DSS_LOCAL_ENDPOINT = 'http://127.0.0.1:' + $DssPort + '/services/rest/validation/validateSignature'
+    $json = & $python -I $adapter $document
+    if ($LASTEXITCODE -ne 0) {
+        throw 'Independent EU DSS verification failed or the pinned local service is unavailable.'
+    }
+} finally {
+    Remove-Item 'Env:PDFCRAFT_DSS_LOCAL_ENDPOINT' -ErrorAction SilentlyContinue
 }
 $report = ($json -join [Environment]::NewLine) | ConvertFrom-Json
 if ($report.schema -ne 'pdfcraft.eidas.independent-dss.v1') {
