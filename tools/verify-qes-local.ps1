@@ -21,6 +21,13 @@ if (-not (Test-Path -LiteralPath $python -PathType Leaf)) {
 if (-not (Test-Path -LiteralPath $adapter -PathType Leaf)) {
     throw 'PdfCraft independent DSS adapter not found.'
 }
+# Accept only the audited adapter. Reject modified/untrusted Python validation code.
+$expectedAdapterSha256 = '2aef337d99724a4008d3a8a9c720a3bb6ed97b34e268fdd6639ea7786a2063dc'
+$actualAdapterSha256 = (Get-FileHash -LiteralPath $adapter -Algorithm SHA256).Hash.ToLowerInvariant()
+if ($actualAdapterSha256 -ne $expectedAdapterSha256) {
+    throw 'Independent DSS adapter source hash mismatch: refusing external code substitution.'
+}
+
 $document = (Resolve-Path -LiteralPath $PdfPath -ErrorAction Stop).ProviderPath
 if (-not (Test-Path -LiteralPath $document -PathType Leaf)) {
     throw 'The selected PDF is not a local file.'
