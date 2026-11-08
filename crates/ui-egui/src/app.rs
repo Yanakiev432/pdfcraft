@@ -198,6 +198,7 @@ impl PdfCraftApp {
             sign_draft: None,
             digital_ids: Vec::new(),
             sig_expanded: Vec::new(),
+            dss_local: dss_local::State::default(),
             a11y_options: a11y_ui::A11yOptions::default(),
             ocr_draft: ocr_ui::OcrDraft::default(),
             ocr_run: None,
