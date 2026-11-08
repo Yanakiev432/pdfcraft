@@ -44,3 +44,15 @@ Initial Python regression on Lenovo: 10 of 10 tests PASS. Rust CLI Windows build
 7. Do not replace production apps, merge main or publish releases without approval.
 
 PDFCraft uses PAdES inside PDF. WordCraft/GridCraft native OPC XMLDSig and external XAdES/ASiC-S are distinct formats.
+
+## E. Opt-in Signatures panel GUI port (QA only)
+
+A separate source-only migration from the legacy UI has been staged in the new v0.18.2 module structure:
+- crates/ui-egui/src/dss_local.rs: asynchronous independent EU DSS state and SHA-256/mtime/length binding, with test-only state regressions.
+- crates/ui-egui/src/lib.rs and src/app.rs: initialize app-local DSS status independently from PdfCraft native signature status.
+- crates/ui-egui/src/panels/right.rs: add a clearly opt-in Check QES with local EU DSS control beneath native Validate all.
+- crates/ui-egui/Cargo.toml: direct SHA2 dependency for file-fingerprint integrity.
+
+The GUI route checks that the PDF was saved and unmodified, does not open any PIN/Windows certificate UI, does not sign, and does not alter the native trust result. The endpoint is pinned to 127.0.0.1:18080 and proxy/redirect refusal remains in the Python adapter. On a changed document, any prior local DSS validation is not reused.
+
+This GUI rebase is a source patch only until a successful Windows build and desktop test are documented. It does NOT modify the installed product, release, or upstream main branch.
