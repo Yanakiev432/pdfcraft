@@ -25,7 +25,7 @@ When checked, localhost DSS ports 18080 and 8080 were NOT listening. Nothing was
 
 The new v0.18.2 branch includes the standalone Python local validator and PAdES-profile gate plus offline regression tests. The headless CLI is being extended with this explicit read-only action:
 
-    pdfcraft-cli verify-qes signed.pdf --adapter tools/eidas_dss_local_verify.py --python PATH [--dss-port 18080|8080]
+    pdfcraft-cli verify-qes signed.pdf --python PATH [--dss-port 18080|8080]
 
 The CLI permits only pinned loopback endpoints. It verifies independent DSS schema, PDF SHA-256 and strict QESig / TOTAL_PASSED outcome, and fails closed. It does not create a signature, acquire keys, prompt for PIN, or modify trust settings.
 
@@ -65,3 +65,12 @@ Windows cargo check -p pdfcraft-ui-egui completed PASS on 2026-11-08. Actual des
 - Python standalone DSS validator and profile gate unit tests: 10/10 PASS.
 - Tests using a real, currently saved B-Trust signed PDF have not been rerun because the historical Temp PDF is no longer available and the local DSS service is not running.
 - Release signer trust, production MSI and interactive GUI approval remain NO-GO.
+
+
+## G. Security hardening: no arbitrary validation adapter (2026-11-08)
+
+Security review found a high-impact fake QES PASS scenario in the initial rebase: the CLI accepted any caller-supplied Python adapter path. A malicious script could fabricate a valid-looking JSON report with the correct PDF SHA-256 and falsely assert QESig/TOTAL_PASSED without calling DSS.
+
+This is now blocked in the QA source: both CLI and GUI **embed the audited Python adapter at Rust compile time**, execute it using Python isolation (-I -c), ignore PDFCRAFT_DSS_ADAPTER and refuse external --adapter overrides. The trusted script is no longer loaded from a user-selected path at runtime. The standalone manual PowerShell helper checks its local adapter SHA-256 against a hardcoded pinned digest before running. All endpoints remain fixed to explicit 127.0.0.1 loopback ports and disable proxy/redirect routing.
+
+The result is a more defensible local validator boundary, but QES qualification still depends on the integrity of the local DSS server and EU Trusted List evaluation, not a self-issued certificate or native PDF metadata. A production release also requires a trusted installer publisher and full GUI acceptance.
