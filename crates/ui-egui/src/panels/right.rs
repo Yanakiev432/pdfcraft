@@ -20,6 +20,7 @@ pub fn right_panel(app: &mut PdfCraftApp, ui: &mut egui::Ui) {
     let mut field_properties = None;
     let mut panel_command: Option<&'static str> = None;
     let mut sig_action: Option<crate::sign_ui::PanelAction> = None;
+    let mut independent_dss_requested = false;
     let mut a11y_action: Option<crate::a11y_ui::PanelAction> = None;
     let mut compare_action: Option<crate::compare_ui::PanelAction> = None;
     let mut bm_rename = app.bookmark_rename.clone();
@@ -33,6 +34,7 @@ pub fn right_panel(app: &mut PdfCraftApp, ui: &mut egui::Ui) {
         let view = &mut app.views[index];
         let prefs = &app.comment_prefs;
         let sig_expanded = &mut app.sig_expanded;
+        let dss_local = &mut app.dss_local;
         let a11y = &mut app.a11y;
         let tags_state = &mut app.tags_state;
         let compare = &app.compare;
@@ -264,6 +266,32 @@ pub fn right_panel(app: &mut PdfCraftApp, ui: &mut egui::Ui) {
                     }
                     RightPanel::Signatures => {
                         sig_action = crate::sign_ui::panel(ui, &t, &doc.signatures, sig_expanded);
+                        #[cfg(not(target_arch = "wasm32"))]
+                        {
+                            dss_local.poll();
+                            if dss_local.pending {
+                                ui.ctx().request_repaint_after(std::time::Duration::from_millis(250));
+                            }
+                            ui.add_space(8.0);
+                            ui.separator();
+                            if ui.add_enabled(
+                                !dss_local.pending,
+                                egui::Button::new("Check QES with local EU DSS"),
+                            ).on_hover_text("Opt-in independent PAdES/QES check. No PIN or signing.").clicked() {
+                                independent_dss_requested = true;
+                            }
+                            if dss_local.checked_path.as_deref() == doc.path.as_deref()
+                                && !dss_local.message.is_empty()
+                            {
+                                if doc.dirty {
+                                    ui.label("Save changes before independent QES validation.");
+                                } else if !dss_local.checked_file_unchanged(doc.path.as_deref()) {
+                                    ui.label("PDF changed since QES validation. Run a new check.");
+                                } else {
+                                    ui.label(&dss_local.message);
+                                }
+                            }
+                        }
                     }
                     RightPanel::Accessibility => {
                         a11y_action = crate::a11y_ui::panel(ui, &t, a11y, id);
@@ -378,6 +406,13 @@ pub fn right_panel(app: &mut PdfCraftApp, ui: &mut egui::Ui) {
                     }
                 });
             });
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    if independent_dss_requested {
+        let doc = app.session.get(id);
+        let path = doc.and_then(|d| d.path.as_deref()).map(str::to_owned);
+        let dirty = doc.is_some_and(|d| d.dirty);
+        crate::dss_local::start(&mut app.dss_local, path.as_deref(), dirty);
     }
     if close {
         app.choose_right_panel(None);
