@@ -1,0 +1,72 @@
+# Read-only independent EU DSS QES check for an already signed PDF.
+# Does not sign, request a PIN, alter Windows trust settings, or send files off-host.
+[CmdletBinding()]
+param(
+    [Parameter(Mandatory = $true, Position = 0)]
+    [ValidateNotNullOrEmpty()]
+    [string]$PdfPath,
+    # Default must match the pinned local Tomcat connector (18080).
+    # 8080 remains an explicit option for other local-only installations.
+    [ValidateSet(8080,18080)]
+    [int]$DssPort = 18080
+)
+$ErrorActionPreference = 'Stop'
+Set-StrictMode -Version Latest
+
+$python = 'C:\Users\User\AppData\Local\Programs\Python\Python312\python.exe'
+$adapter = Join-Path $PSScriptRoot 'eidas_dss_local_verify.py'
+if (-not (Test-Path -LiteralPath $python -PathType Leaf)) {
+    throw 'Configured Python 3.12 executable not found.'
+}
+if (-not (Test-Path -LiteralPath $adapter -PathType Leaf)) {
+    throw 'PdfCraft independent DSS adapter not found.'
+}
+# Accept only the audited adapter. Reject modified/untrusted Python validation code.
+$expectedAdapterSha256 = '2aef337d99724a4008d3a8a9c720a3bb6ed97b34e268fdd6639ea7786a2063dc'
+$actualAdapterSha256 = (Get-FileHash -LiteralPath $adapter -Algorithm SHA256).Hash.ToLowerInvariant()
+if ($actualAdapterSha256 -ne $expectedAdapterSha256) {
+    throw 'Independent DSS adapter source hash mismatch: refusing external code substitution.'
+}
+
+$document = (Resolve-Path -LiteralPath $PdfPath -ErrorAction Stop).ProviderPath
+if (-not (Test-Path -LiteralPath $document -PathType Leaf)) {
+    throw 'The selected PDF is not a local file.'
+}
+if ([IO.Path]::GetExtension($document) -ine '.pdf') {
+    throw 'Only saved .pdf files are accepted.'
+}
+
+# Never trust an inherited endpoint. Pin the host/path and accept only two
+# locally configured ports; the Python adapter also independently forbids
+# non-loopback endpoints, proxies and redirects.
+Remove-Item 'Env:PDFCRAFT_DSS_LOCAL_ENDPOINT' -ErrorAction SilentlyContinue
+try {
+    $env:PDFCRAFT_DSS_LOCAL_ENDPOINT = 'http://127.0.0.1:' + $DssPort + '/services/rest/validation/validateSignature'
+    $json = & $python -I $adapter $document
+    if ($LASTEXITCODE -ne 0) {
+        throw 'Independent EU DSS verification failed or the pinned local service is unavailable.'
+    }
+} finally {
+    Remove-Item 'Env:PDFCRAFT_DSS_LOCAL_ENDPOINT' -ErrorAction SilentlyContinue
+}
+$report = ($json -join [Environment]::NewLine) | ConvertFrom-Json
+if ($report.schema -ne 'pdfcraft.eidas.independent-dss.v1') {
+    throw 'Unrecognized independent EU DSS report schema.'
+}
+$actualSha = (Get-FileHash -LiteralPath $document -Algorithm SHA256).Hash.ToLowerInvariant()
+if ($report.pdf_sha256 -ne $actualSha) {
+    throw 'PDF changed since independent DSS verification. Recheck required.'
+}
+$passed = ($report.independent_dss_qes_pass -eq $true) -and
+          ($report.dss_signature_level -ceq 'QESig') -and
+          ($report.dss_indication -ceq 'TOTAL_PASSED')
+[pscustomobject]@{
+    IndependentEUDSS = $(if ($passed) { 'QES PASS' } else { 'NO QES PASS' })
+    SignatureLevel = $report.dss_signature_level
+    Indication = $report.dss_indication
+    PdfSha256 = $actualSha
+    Note = 'Native PdfCraft validation is separate. No PAdES-LT/LTA issuance is claimed.'
+}
+if (-not $passed) {
+    throw 'Independent EU DSS did not confirm QES PASS.'
+}
