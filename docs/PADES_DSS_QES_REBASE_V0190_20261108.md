@@ -81,3 +81,23 @@ The initially interrupted Windows GUI test compilation was retried incrementally
 - Together with the four CLI Rust tests and ten Python tests, the v0.19.0 targeted source regression suite is **19/19 PASS**.
 
 A full desktop GUI binary build and separate portable UI-control acceptance are distinct gates. The installed official PDFCraft v0.19.0 remains untouched; the QA build is not a public code-signed release. The owner's Desktop/crafts shortcuts still point exclusively to verified official installed Craft versions.
+
+
+## K. Portable desktop GUI acceptance and isolated QA package — 2026-11-08
+
+A **real native Windows desktop session** on the Lenovo was used to start the separate source-built PdfCraft v0.19.0 as an isolated portable app (not the installed official program).
+
+- GUI QES button in the Signatures panel visible and actionable: **PASS**.
+- Synthetic self-issued PDF never displays qualified QES acceptance: **PASS**.
+- Existing real qualified-signed PDF produces independent EU DSS **QES PASS** in the live Signatures UI: **PASS**.
+- Combined desktop acceptance: **3/3 PASS**. No user private key or PIN accessed, no personal document uploaded, original PDF unmodified, test control token destroyed, QA window closed.
+- Together with the independent compiled CLI acceptance **4/4 PASS**, CLI Rust unit **4/4 PASS**, GUI Rust unit **5/5 PASS**, and Python profile/adapter unit **10/10 PASS**, the v0.19.0 source feature has comprehensive local QA evidence.
+
+A private portable QA ZIP was created on Lenovo in CraftUpdates/Signing-Rebase-20261106/PDFCraft-PAdES-QA-20261108/dist:
+PDFCraft-0.19.0-PAdES-QES-LOCAL-QA-UNTRUSTED-20261108.zip.
+The ZIP holds only the verified binary, portable marker, local usage instructions and opt-in launcher; no confidential PDF, keys, token or account data.
+SHA-256 of the complete QA ZIP: 48d1d9729ec5a496d6da9574ca8a24ff9ae0a837160a1217d07fc782421e539a.
+
+**PRODUCTION GATE OPEN:** The independently source-built QA executable is NOT Authenticode-signed. Only the existing official PdfCraft v0.19.0 executable is signed Valid by its publisher. This QA feature is NOT installed over it. The owner's Desktop/crafts still contains 19 links exclusively to verified currently installed official Craft apps, zero broken links. Shipping the custom feature as a trusted production installer requires a legitimate code-signing certificate/publisher or accepted upstream integration and a separate installer validation; do not bypass SmartScreen or add an untrusted root authority.
+
+Qualification validation of existing signatures is accepted in the QA flow. Owner-present *new B-Trust hardware signing* remains a separate integration acceptance gate, as do PAdES B-T/LT/LTA extensions requiring additional evidence.
