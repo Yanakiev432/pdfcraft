@@ -10,30 +10,33 @@ use std::process::Command;
 
 const MAX_PDF_SIZE: u64 = 64 * 1024 * 1024;
 const ADAPTER_SCHEMA: &str = "pdfcraft.eidas.independent-dss.v1";
+// Execute only the validator code embedded at build time. No arbitrary
+// user-supplied Python adapter can be substituted for a QES verdict.
+const PINNED_DSS_ADAPTER: &str = include_str!("../../../tools/eidas_dss_local_verify.py");
 
-fn parse_options(args: &[String]) -> Result<(&str, &str, &str, u16), String> {
-    if args.len() != 5 && args.len() != 7 {
-        return Err("usage: verify-qes <file.pdf> --adapter PATH --python PATH [--dss-port 18080|8080]".into());
+fn parse_options(args: &[String]) -> Result<(&str, &str, u16), String> {
+    if args.len() != 3 && args.len() != 5 {
+        return Err("usage: verify-qes <file.pdf> --python PATH [--dss-port 18080|8080]".into());
     }
-    if args[1] != "--adapter" || args[3] != "--python" {
-        return Err("verify-qes: --adapter and --python must be explicit, in that order".into());
+    if args[1] != "--python" {
+        return Err("verify-qes: --python must be explicit; no external validator script is accepted".into());
     }
-    let port = if args.len() == 7 {
-        if args[5] != "--dss-port" {
+    let port = if args.len() == 5 {
+        if args[3] != "--dss-port" {
             return Err("verify-qes: unsupported option".into());
         }
-        args[6].parse::<u16>().map_err(|_| "verify-qes: invalid DSS port")?
+        args[4].parse::<u16>().map_err(|_| "verify-qes: invalid DSS port")?
     } else {
         18080
     };
     if port != 18080 && port != 8080 {
-        return Err("verify-qes: only the explicitly configured local ports 18080 or 8080 are permitted".into());
+        return Err("verify-qes: only explicitly configured local ports 18080 or 8080 are permitted".into());
     }
-    Ok((&args[0], &args[2], &args[4], port))
+    Ok((&args[0], &args[2], port))
 }
 
 pub(crate) fn verify(args: &[String]) -> Result<String, CliError> {
-    let (pdf, adapter, python, port) = parse_options(args)?;
+    let (pdf, python, port) = parse_options(args)?;
     let path = Path::new(pdf);
     if !path.is_file() || path.extension().and_then(|x| x.to_str()).is_none_or(|x| !x.eq_ignore_ascii_case("pdf")) {
         return Err("verify-qes: supply an existing saved PDF".into());
@@ -42,8 +45,8 @@ pub(crate) fn verify(args: &[String]) -> Result<String, CliError> {
     if metadata.len() > MAX_PDF_SIZE {
         return Err("verify-qes: PDF exceeds 64 MiB local DSS QA limit".into());
     }
-    if !Path::new(adapter).is_file() || !Path::new(python).is_file() {
-        return Err("verify-qes: explicit local Python interpreter and adapter must exist".into());
+    if !Path::new(python).is_file() {
+        return Err("verify-qes: explicit local Python interpreter must exist".into());
     }
     let endpoint = format!("http://127.0.0.1:{port}/services/rest/validation/validateSignature");
     let mut command = Command::new(python);
@@ -54,7 +57,8 @@ pub(crate) fn verify(args: &[String]) -> Result<String, CliError> {
     }
     let output = command
         .arg("-I")
-        .arg(adapter)
+        .arg("-c")
+        .arg(PINNED_DSS_ADAPTER)
         .arg(pdf)
         // Ignore inherited environment; use only this known loopback address.
         .env_remove("PDFCRAFT_DSS_LOCAL_ENDPOINT")
@@ -94,14 +98,22 @@ mod tests {
     }
     #[test]
     fn rejects_unapproved_port() {
-        let options = ["file.pdf", "--adapter", "a.py", "--python", "python.exe", "--dss-port", "8081"].map(str::to_owned);
+        let options = ["file.pdf", "--python", "python.exe", "--dss-port", "8081"].map(str::to_owned);
         assert!(parse_options(&options).is_err());
     }
     #[test]
+    fn rejects_an_external_python_adapter_override() {
+        let injected = ["file.pdf", "--adapter", "malicious.py", "--python", "python.exe"].map(str::to_owned);
+        assert!(parse_options(&injected).is_err());
+        assert!(super::PINNED_DSS_ADAPTER.contains("NoRedirect"));
+        assert!(super::PINNED_DSS_ADAPTER.contains("PDFCRAFT_DSS_LOCAL_ENDPOINT"));
+    }
+
+    #[test]
     fn defaults_to_local_18080_and_explicit_8080() {
-        let normal = ["file.pdf", "--adapter", "a.py", "--python", "python.exe"].map(str::to_owned);
-        assert_eq!(parse_options(&normal).map(|(_, _, _, port)| port).ok(), Some(18080));
-        let custom = ["file.pdf", "--adapter", "a.py", "--python", "python.exe", "--dss-port", "8080"].map(str::to_owned);
-        assert_eq!(parse_options(&custom).map(|(_, _, _, port)| port).ok(), Some(8080));
+        let normal = ["file.pdf", "--python", "python.exe"].map(str::to_owned);
+        assert_eq!(parse_options(&normal).map(|(_, _, port)| port).ok(), Some(18080));
+        let custom = ["file.pdf", "--python", "python.exe", "--dss-port", "8080"].map(str::to_owned);
+        assert_eq!(parse_options(&custom).map(|(_, _, port)| port).ok(), Some(8080));
     }
 }
