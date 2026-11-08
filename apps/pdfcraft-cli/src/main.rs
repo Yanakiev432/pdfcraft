@@ -83,7 +83,7 @@ pdfcraft-cli extract <in.pdf> --pages 1,3,5-8 --out out.pdf    (pages and ranges
 pdfcraft-cli split   <in.pdf> (--every N | --before 3,7) [--out-dir DIR]
 pdfcraft-cli check  <files or dirs…> [--timeout 20] [--dpi 36] [--json out.json]
 pdfcraft-cli audit  <file.pdf> [--password PW]            find faux redactions (fails when found)
-pdfcraft-cli verify-qes <signed.pdf> --adapter PATH --python PATH [--dss-port 18080|8080]
+pdfcraft-cli verify-qes <signed.pdf> --python PATH [--dss-port 18080|8080]
                                                           opt-in independent EU DSS, loopback-only PAdES QES validation
 pdfcraft-cli batch <files or dirs...> --steps convert,ocr,optimize --out-dir DIR
                       [--recursive] [--root DIR] [--stop-on-error]
