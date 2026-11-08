@@ -31,7 +31,7 @@ The CLI permits only pinned loopback endpoints. It verifies independent DSS sche
 
 Python adapter additionally refuses network redirection and OS proxy routing, does not contact public DSS services, and cannot infer qualified status from native PDF metadata. Profile gate requires explicit independent validation and never interprets B as T/LT/LTA.
 
-Initial Python regression on Lenovo: 10 of 10 tests PASS. Rust CLI Windows build is a separate acceptance gate. Do not claim its result until compilation completes.
+Initial Python regression on Lenovo: 10 of 10 tests PASS. Windows Cargo check for the rebased CLI completed PASS on 2026-11-08 with the pinned upstream craft-libs dependency fetched. No production EXE was changed.
 
 ## Blocking gates
 
@@ -55,4 +55,13 @@ A separate source-only migration from the legacy UI has been staged in the new v
 
 The GUI route checks that the PDF was saved and unmodified, does not open any PIN/Windows certificate UI, does not sign, and does not alter the native trust result. The endpoint is pinned to 127.0.0.1:18080 and proxy/redirect refusal remains in the Python adapter. On a changed document, any prior local DSS validation is not reused.
 
-This GUI rebase is a source patch only until a successful Windows build and desktop test are documented. It does NOT modify the installed product, release, or upstream main branch.
+Windows cargo check -p pdfcraft-ui-egui completed PASS on 2026-11-08. Actual desktop GUI click tests and live local-DSS validation are still outstanding. It does NOT modify the installed product, release, or upstream main branch.
+
+
+## F. Successful compilation evidence
+
+- Cargo check of pdfcraft-cli, --no-default-features, Windows x64: PASS. Full log and machine-readable receipt in PDFCraft-PAdES-QA-20261108 on Lenovo; no B-Trust key used.
+- Cargo check of pdfcraft-ui-egui with new opt-in DSS Signatures panel control, Windows x64: PASS. Full log and machine-readable receipt in the same local QA folder.
+- Python standalone DSS validator and profile gate unit tests: 10/10 PASS.
+- Tests using a real, currently saved B-Trust signed PDF have not been rerun because the historical Temp PDF is no longer available and the local DSS service is not running.
+- Release signer trust, production MSI and interactive GUI approval remain NO-GO.
