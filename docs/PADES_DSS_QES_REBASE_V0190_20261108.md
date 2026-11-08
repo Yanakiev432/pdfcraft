@@ -22,9 +22,9 @@ The GUI Signatures panel adds an opt-in Check QES with local EU DSS button. The 
 ## Test gates
 
 - 0.19.0 Python regression suite (tools/test_eidas_*.py): **10/10 PASS**.
-- 0.19.0 Rust CLI and GUI compile and targeted tests: **pending**, must be checked against the 0.19.0 dependency graph, not copied from 0.18.2 receipts.
+- 0.19.0 Windows cargo check: **PASS for both pdfcraft-cli and pdfcraft-ui-egui** on the pinned upstream dependency graph; 0.19.0 Rust targeted unit tests remain separately gated.
 - Real owner-present B-Trust QES signing with provider-managed PIN: **not attempted in this QA work**.
-- Real independent European Trusted Lists / revocation / QSCD validation for a current signed PDF: **not yet accepted on this version**.
+- Local EC DSS 6.5.1 verification of an **already signed existing PDF**: **TOTAL_PASSED / QESig** as a document-specific local validation result; no hardware signing or PIN. A temporary one-byte altered clone of the same real signed PDF was independently classified **TOTAL_FAILED**, and the original PDF SHA-256 was unchanged. Personal original and full validation reports were kept on the Lenovo, not published to GitHub. This establishes independent validation behavior for this document only, not trusted production GUI acceptance.
 - PAdES B-T / LT / LTA acceptances: **not established**. A QES-level result for PAdES-B is not an archival timestamp.
 - Code-signing and trusted MSI publishing: **not implemented in this QA branch**.
 
@@ -33,3 +33,19 @@ The installed official 0.19.0 MSI was separately verified and passed basic GUI s
 ## Safety and deployment
 
 No main merge, no installer replacement, no production changes, no GPU workloads, no API charges. Keep source, signed PDF and independent validator reports local and preserve input document SHA-256. Any owner-present hardware test requires explicit Windows certificate selection and the manufacturer's native PIN UI. Qualified result must be checked against a current independent validator and trusted lists, not inferred from a crypto-only pass.
+
+
+## Verification evidence and limitations (2026-11-08)
+
+1. Pinned upstream tag and clean local checkout: 8c572792d6760bdc903d6f9a032e3e38e8f71cb8.
+2. File-for-file GitHub QA branch parity: 14/14 uploaded source files identical to the local Windows worktree before Cargo.lock update. The lockfile contains direct sha2 v0.10.9 entries for both app packages.
+3. Python evaluator/profile regression: **10/10 PASS** on v0.19.0.
+4. Windows Cargo check for both CLI and GUI: **PASS**.
+5. Live local independent DSS 6.5.1 result for a locally saved document previously signed with a qualified certificate: **QESig + TOTAL_PASSED**. The original was not modified and no PIN or private key was used.
+6. Same real signed document, altered **ephemeral one-byte clone**: independent DSS **TOTAL_FAILED**; client rejected it; clone automatically deleted after the test.
+7. Self-issued or altered synthetic PDF cases did not yield a qualified PASS. Invalidating inputs are explicitly refused; a missing local DSS service is also fail-closed, not treated as a crypto validation.
+8. Targeted Rust v0.19.0 tests: initial --offline test harness could not resolve git dependency craft-docpath, so did not execute any test. An online locked dependency resolution and Rust regression is a separate pass gate, not inferred from the successful cargo checks.
+
+Private document hashes and raw qualified validation reports are stored ONLY on the authorized Lenovo under CraftUpdates/Signing-Rebase-20261106/PDFCraft-PAdES-QA-20261108/*.private.json, and are deliberately excluded from public GitHub.
+
+The installed official publisher-signed v0.19.0 application and its Desktop/crafts shortcut remain unchanged. Its GUI has NOT been replaced with this QA feature; successful source compilation is not an installation.
