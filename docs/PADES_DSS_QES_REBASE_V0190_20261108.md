@@ -49,3 +49,21 @@ No main merge, no installer replacement, no production changes, no GPU workloads
 Private document hashes and raw qualified validation reports are stored ONLY on the authorized Lenovo under CraftUpdates/Signing-Rebase-20261106/PDFCraft-PAdES-QA-20261108/*.private.json, and are deliberately excluded from public GitHub.
 
 The installed official publisher-signed v0.19.0 application and its Desktop/crafts shortcut remain unchanged. Its GUI has NOT been replaced with this QA feature; successful source compilation is not an installation.
+
+
+## I. Compiled native Windows CLI acceptance — 2026-11-08
+
+The v0.19.0 QA source tree has passed all of these as separate actual executions on Lenovo:
+
+- Rust CLI focused unit tests: **4/4 PASS**, zero failures.
+- Windows CLI binary build (cargo build --locked -p pdfcraft-cli --no-default-features): **PASS**.
+- CLI compiled-binary end-to-end independent DSS check: **4/4 PASS** using native pdfcraft-cli.exe and local EC DSS 6.5.1:
+  - Already existing qualified signed PDF: QES accepted, DSS QESig / TOTAL_PASSED.
+  - Self-issued test certificate: QES rejected.
+  - Modified temporary byte clone of the genuinely signed PDF: QES rejected.
+  - Malicious external --adapter injection attempt: rejected before verification.
+- The original signed PDF remained bytewise unchanged, and temporary altered clone was deleted. No private keys or PIN were accessed; no confidential PDF uploaded.
+- The combined GUI Rust unit suite remains a separate gate, not implied by successful CLI tests or cargo check.
+- No published trust-signed installer, no change to installed official PDFCraft v0.19.0 or the desktop shortcut.
+
+QA-only local CLI build and original-document-private receipts live under Documents/CraftUpdates/Signing-Rebase-20261106. Do not publish personal signed PDF bytes, filenames or private receipts in GitHub.
