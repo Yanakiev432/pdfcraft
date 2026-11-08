@@ -20,6 +20,7 @@
 #[cfg(feature = "mcp")]
 mod automation_args;
 mod batch;
+mod qes;
 
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -82,6 +83,8 @@ pdfcraft-cli extract <in.pdf> --pages 1,3,5-8 --out out.pdf    (pages and ranges
 pdfcraft-cli split   <in.pdf> (--every N | --before 3,7) [--out-dir DIR]
 pdfcraft-cli check  <files or dirs…> [--timeout 20] [--dpi 36] [--json out.json]
 pdfcraft-cli audit  <file.pdf> [--password PW]            find faux redactions (fails when found)
+pdfcraft-cli verify-qes <signed.pdf> --adapter PATH --python PATH [--dss-port 18080|8080]
+                                                          opt-in independent EU DSS, loopback-only PAdES QES validation
 pdfcraft-cli batch <files or dirs...> --steps convert,ocr,optimize --out-dir DIR
                       [--recursive] [--root DIR] [--stop-on-error]
                       [--ppi 150] [--quality 60] [--dpi 300] [--language en] [--ocr-all-pages]
@@ -137,6 +140,7 @@ fn main() -> ExitCode {
         Some("tools") => tools(),
         Some("run") => run(&args[1..]),
         Some("batch") => batch::run(&args[1..]),
+        Some("verify-qes") => qes::verify(&args[1..]).and_then(|json| stdout_line(format_args!("{json}"))),
         Some("ui") => ui(&args[1..]),
         #[cfg(feature = "mcp")]
         Some("mcp") => mcp(&args[1..]),
