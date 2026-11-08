@@ -15,6 +15,7 @@ workspace = true
 [dependencies]
 pdfcraft-render = { workspace = true }
 serde_json = { workspace = true }
+sha2 = "0.10"
 pdfcraft-engine = { workspace = true }
 pdfcraft-audit = { workspace = true }
 pdfcraft-cos = { workspace = true }
