@@ -67,3 +67,17 @@ The v0.19.0 QA source tree has passed all of these as separate actual executions
 - No published trust-signed installer, no change to installed official PDFCraft v0.19.0 or the desktop shortcut.
 
 QA-only local CLI build and original-document-private receipts live under Documents/CraftUpdates/Signing-Rebase-20261106. Do not publish personal signed PDF bytes, filenames or private receipts in GitHub.
+
+
+## J. Native GUI Rust test acceptance — 2026-11-08
+
+The initially interrupted Windows GUI test compilation was retried incrementally, then completed **PASS**:
+
+- cargo test --locked -p pdfcraft-ui-egui --lib dss_local::tests -j 2: **5/5 PASS**.
+- Dirty document is not validated against its previously saved PDF bytes.
+- A changed PDF invalidates prior QES verdict even when an attacker restores the original file length and modification time.
+- No QES claim is present on initial GUI state.
+- Embedded immutable DSS validator is present, and arbitrary external Python adapter substitution is rejected by design.
+- Together with the four CLI Rust tests and ten Python tests, the v0.19.0 targeted source regression suite is **19/19 PASS**.
+
+A full desktop GUI binary build and separate portable UI-control acceptance are distinct gates. The installed official PDFCraft v0.19.0 remains untouched; the QA build is not a public code-signed release. The owner's Desktop/crafts shortcuts still point exclusively to verified official installed Craft versions.
