@@ -4321,6 +4321,7 @@ dependencies = [
  "png 0.18.1",
  "rustix 1.1.5",
  "serde_json",
+ "sha2 0.10.9",
  "winresource",
 ]
 
@@ -4738,6 +4739,7 @@ dependencies = [
  "rustix 1.1.5",
  "serde",
  "serde_json",
+ "sha2 0.10.9",
  "skrifa 0.44.0",
  "sys-locale",
  "toml",
