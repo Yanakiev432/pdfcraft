@@ -1,5 +1,9 @@
 //! Opt-in local EU DSS check. Independent from PdfCraft's native trust verdict.
 use sha2::{Digest, Sha256};
+// Pin the exact EC DSS validation adapter in the executable. A user-supplied
+// script cannot forge a QES verdict by changing PDFCRAFT_DSS_ADAPTER.
+#[cfg(not(target_arch = "wasm32"))]
+const PINNED_DSS_ADAPTER: &str = include_str!("../../../tools/eidas_dss_local_verify.py");
 use std::io::Read;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct FileStamp {
@@ -59,13 +63,14 @@ pub(crate) fn start(state: &mut State, pdf: Option<&str>, dirty: bool) {
         state.message = "Independent DSS requires a saved local PDF.".into();
         return;
     };
-    // Operator-supplied paths: no hidden interpreter or script discovery.
-    let (Ok(python), Ok(adapter)) = (std::env::var("PDFCRAFT_DSS_PYTHON"), std::env::var("PDFCRAFT_DSS_ADAPTER")) else {
-        state.message = "Configure PDFCRAFT_DSS_PYTHON and PDFCRAFT_DSS_ADAPTER to enable local DSS.".into();
+    // Explicit local Python interpreter; immutable adapter code is embedded
+    // in this executable, not read from environment or filesystem.
+    let Ok(python) = std::env::var("PDFCRAFT_DSS_PYTHON") else {
+        state.message = "Configure PDFCRAFT_DSS_PYTHON to enable local DSS.".into();
         return;
     };
-    if !std::path::Path::new(&python).is_file() || !std::path::Path::new(&adapter).is_file() {
-        state.message = "Configured local DSS Python or adapter path does not exist.".into();
+    if !std::path::Path::new(&python).is_file() {
+        state.message = "Configured local DSS Python interpreter does not exist.".into();
         return;
     }
     let path = pdf.to_owned();
@@ -76,7 +81,7 @@ pub(crate) fn start(state: &mut State, pdf: Option<&str>, dirty: bool) {
     state.message = "Independent EU DSS validation in progress...".into();
     state.outcome = Some(result);
     std::thread::spawn(move || {
-        let outcome = run(&python, &adapter, &path);
+        let outcome = run(&python, &path);
         if let Ok(mut guard) = worker_result.lock() {
             *guard = Some(outcome);
         }
@@ -84,10 +89,11 @@ pub(crate) fn start(state: &mut State, pdf: Option<&str>, dirty: bool) {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-fn run(python: &str, adapter: &str, pdf: &str) -> Result<(String, FileStamp), String> {
+fn run(python: &str, pdf: &str) -> Result<(String, FileStamp), String> {
     let output = std::process::Command::new(python)
         .arg("-I")
-        .arg(adapter)
+        .arg("-c")
+        .arg(PINNED_DSS_ADAPTER)
         .arg(pdf)
         .env_remove("PDFCRAFT_DSS_LOCAL_ENDPOINT")
         .env("PDFCRAFT_DSS_LOCAL_ENDPOINT", "http://127.0.0.1:18080/services/rest/validation/validateSignature")
@@ -151,6 +157,14 @@ impl State {
 #[cfg(test)]
 mod tests {
     use super::State;
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn embedded_validator_blocks_external_adapter_substitution() {
+        assert!(super::PINNED_DSS_ADAPTER.contains("NoRedirect"));
+        assert!(super::PINNED_DSS_ADAPTER.contains("ProxyHandler({})"));
+        assert!(super::PINNED_DSS_ADAPTER.contains("TOTAL_PASSED"));
+    }
 
     #[test]
     fn starts_unconfigured_and_without_qes_claim() {
