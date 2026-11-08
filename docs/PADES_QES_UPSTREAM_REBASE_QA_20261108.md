@@ -74,3 +74,19 @@ Security review found a high-impact fake QES PASS scenario in the initial rebase
 This is now blocked in the QA source: both CLI and GUI **embed the audited Python adapter at Rust compile time**, execute it using Python isolation (-I -c), ignore PDFCRAFT_DSS_ADAPTER and refuse external --adapter overrides. The trusted script is no longer loaded from a user-selected path at runtime. The standalone manual PowerShell helper checks its local adapter SHA-256 against a hardcoded pinned digest before running. All endpoints remain fixed to explicit 127.0.0.1 loopback ports and disable proxy/redirect routing.
 
 The result is a more defensible local validator boundary, but QES qualification still depends on the integrity of the local DSS server and EU Trusted List evaluation, not a self-issued certificate or native PDF metadata. A production release also requires a trusted installer publisher and full GUI acceptance.
+
+
+## H. Final v0.18.2 source tests and official v0.19.0 distinction
+
+Validated QA source branch: qa/pades-dss-upstream-v0182-20261108.
+
+- CLI security Rust unit tests: **4/4 PASS**, including rejection of external validator code substitution.
+- GUI DSS security Rust unit tests: **5/5 PASS**, including dirty-document rejection and changed-PDF hash invalidation.
+- Python local DSS adapter/profile unit tests: **10/10 PASS**.
+- Windows cargo check for CLI and GUI: PASS.
+- Live local EU DSS returned INDETERMINATE for a self-issued synthetic signed PDF and TOTAL_FAILED for the altered PDF, correctly without any false qualified-signature acceptance.
+- The public official Storytold PDFCraft v0.19.0 MSI was verified against the official GitHub asset SHA-256, Authenticode Valid and successfully installed with GUI smoke PASS on Lenovo. The old 0.18.2 product was replaced.
+
+**Important:** these source QA patches are not included in the official 0.19.0 installed MSI. Porting the custom DSS feature to v0.19.0, trusted installer signing and owner-present real B-Trust/QSCD acceptance are uncompleted gates; no production QES validation claim may be made for this patched code.
+
+Reproducible Rust debug compilation output was deleted after the tests completed to restore safe Lenovo disk headroom. No source or test reports were deleted.
