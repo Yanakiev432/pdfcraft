@@ -66,3 +66,18 @@ Before a real GUI PASS:
    calling the feature shipped, as the upstream AGENTS.md requires.
 
 No production or official installed application was modified.
+
+## Validated local QA results
+
+* Windows \`cargo check -p pdfcraft-ui-egui --locked --offline\`: PASS,
+  exit 0, after correcting SHA-256 digest formatting for sha2 0.11.
+* Windows \`cargo test -p pdfcraft-ui-egui craft_signer::tests --lib --locked --offline\`:
+  PASS, 4 passed / 0 failed / 0 ignored, 1002 filtered out; exit 0.
+* \`cargo fmt -p pdfcraft-ui-egui -- --check\`: PASS.
+* \`git diff --check\` and staged checks: PASS.
+* Compiler warning from original \`vendor/hayro-interpret\` unused import:
+  pre-existing external library, unrelated to this adapter.
+* Cryptographic acceptance using a genuine B-Trust PDF remains proven only
+  in the broker's separately tested DSS path (not through this GUI build).
+* No production installation, no publisher approval added, no MSI changed,
+  no end-to-end GUI or module update acceptance yet.
