@@ -194,6 +194,12 @@ fn authenticate_signed_manifest(
 fn approved_broker() -> Result<(PathBuf, File), String> {
     let local = std::env::var_os("LOCALAPPDATA").ok_or("LOCALAPPDATA is unavailable")?;
     let root = PathBuf::from(local).join("Craft").join("Extensions");
+    approved_broker_under(&root)
+}
+
+/// Same authenticated discovery used in production, but accepts an explicit
+/// base for isolated acceptance tests. Never uses this as a runtime override.
+fn approved_broker_under(root: &Path) -> Result<(PathBuf, File), String> {
     let policy = parse_json(&root.join("_trust").join("org.craftopensource.signer.json"), 8192)
         .map_err(|_| "Craft Signer is not installed with approved publisher policy")?;
     if field(&policy, "schema")? != "craft.signer/local-developer-approval/1" || field(&policy, "moduleId")? != MOD_ID {
@@ -468,6 +474,104 @@ mod tests {
         altered_certificate[end] ^= 1;
         assert!(authenticate_signed_manifest(&manifest, &sig, &altered_certificate, &pin).is_err());
     }
+    /// Full positive/negative v2 discovery on a TEMPORARY registered release
+    /// using the actual signed .NET 0.2.2-qa catalog and executable bytes.
+    #[test]
+    #[ignore = "requires local .NET signed package and independently derived SPKI pin"]
+    fn dotnet_signed_module_registration_is_accepted_only_when_intact() {
+        use std::io::{Seek, SeekFrom};
+        let source = PathBuf::from(
+            std::env::var_os("CRAFT_SIGNER_DOTNET_V022_ROOT").expect("set CRAFT_SIGNER_DOTNET_V022_ROOT to the signed source repository"),
+        );
+        let pin = std::env::var("CRAFT_SIGNER_PUBLISHER_SPKI_SHA256").expect("set independently computed publisher public SPKI SHA-256");
+        assert!(is_hex64(&pin), "independent public key pin must be SHA-256");
+
+        let manifest_source = source.join("ModuleV2").join("Package").join("manifest.json");
+        let manifest = fs::read(&manifest_source).expect("read signed manifest");
+        let json: Value = serde_json::from_slice(&manifest).expect("manifest JSON");
+        let version = json.get("moduleVersion").and_then(Value::as_str).expect("module version");
+        assert_eq!(version, "0.2.2-qa");
+        let leaf = format!("{}-{}", version, sha(&manifest)[..16].to_ascii_uppercase());
+
+        let temp = tempfile::tempdir().expect("disposable module root");
+        let root = temp.path().join("Craft").join("Extensions");
+        let policy_dir = root.join("_trust");
+        let module_dir = root.join(MOD_ID);
+        let release = module_dir.join("releases").join(&leaf);
+        fs::create_dir_all(&policy_dir).expect("policy directory");
+        fs::create_dir_all(&release).expect("release directory");
+        let files = [
+            (manifest_source, "manifest.json"),
+            (source.join("ModuleV2").join("Package").join("manifest.p7s"), "manifest.p7s"),
+            (source.join("ModuleV2").join("Package").join("publisher.cer"), "publisher.cer"),
+            (source.join("ModuleV2").join("Broker").join("dist-local").join("CraftSignerBroker.exe"), "craft-signer-broker.exe"),
+            (source.join("Bundles").join("wordcraft-cli.exe"), "wordcraft-cli.exe"),
+            (source.join("Bundles").join("gridcraft-cli.exe"), "gridcraft-cli.exe"),
+        ];
+        for (source_path, name) in files {
+            fs::copy(&source_path, release.join(name)).expect("copy signed release fixture without changing source");
+        }
+        fs::write(
+            policy_dir.join("org.craftopensource.signer.json"),
+            serde_json::to_vec(&json!({
+                "schema":"craft.signer/local-developer-approval/1",
+                "moduleId":MOD_ID,
+                "keySha256":pin
+            }))
+            .expect("test policy JSON"),
+        )
+        .expect("temporary test-only policy");
+        fs::write(
+            module_dir.join("current.json"),
+            serde_json::to_vec(&json!({
+                "moduleId":MOD_ID,
+                "moduleVersion":version,
+                "releaseDirectory":leaf,
+                "publisherPublicKeySha256":pin,
+                "protocolMajor":1
+            }))
+            .expect("test registration JSON"),
+        )
+        .expect("temporary test-only registration");
+
+        let broker = release.join("craft-signer-broker.exe");
+        let (actual, lock) = approved_broker_under(&root).expect("actual signed C# catalog and broker pass authenticated Rust discovery");
+        assert_eq!(actual, broker, "only the signed release broker is authorized");
+        drop(lock);
+
+        let active = module_dir.join("current.json");
+        let record: Value = serde_json::from_slice(&fs::read(&active).expect("registration")).expect("registration JSON");
+        let mut wrong = record.clone();
+        wrong["releaseDirectory"] = json!("0.2.2-qa-0000000000000000");
+        fs::write(&active, serde_json::to_vec(&wrong).expect("encode")).expect("tampered registration");
+        assert!(approved_broker_under(&root).is_err(), "wrong release hash must be refused");
+        fs::write(&active, serde_json::to_vec(&record).expect("encode")).expect("restore registration");
+
+        let policy_path = policy_dir.join("org.craftopensource.signer.json");
+        let mut bad_policy: Value = serde_json::from_slice(&fs::read(&policy_path).expect("policy")).expect("policy JSON");
+        bad_policy["keySha256"] = json!("0".repeat(64));
+        fs::write(&policy_path, serde_json::to_vec(&bad_policy).expect("encode")).expect("wrong pin");
+        assert!(approved_broker_under(&root).is_err(), "wrong publisher pin must be refused");
+        fs::write(
+            &policy_path,
+            serde_json::to_vec(&json!({"schema":"craft.signer/local-developer-approval/1",
+                "moduleId":MOD_ID,"keySha256":pin}))
+            .expect("encode"),
+        )
+        .expect("restore test policy");
+
+        let mut executable = OpenOptions::new().read(true).write(true).open(&broker).expect("test-only broker copy");
+        executable.seek(SeekFrom::Start(1024)).expect("seek inside broker copy");
+        let mut byte = [0_u8; 1];
+        executable.read_exact(&mut byte).expect("read one signed byte");
+        executable.seek(SeekFrom::Start(1024)).expect("seek before tampering");
+        executable.write_all(&[byte[0] ^ 1]).expect("tamper test-only executable");
+        executable.flush().expect("flush test-only modification");
+        drop(executable);
+        assert!(approved_broker_under(&root).is_err(), "modified signed broker must be refused");
+        // tempfile drops the entire private release and policy at test exit.
+    }
+
     #[test]
     fn release_paths_reject_traversal() {
         for s in ["../other", ".staging-bad", r"c:\tmp", "x/y", "", "a_b"] {
