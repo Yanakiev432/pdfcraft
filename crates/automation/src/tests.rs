@@ -1,3 +1,26 @@
+#[cfg(target_os = "windows")]
+#[test]
+fn craft_signer_qes_tool_is_read_only_root_confined_and_fail_closed() {
+    let def = tools::find("sign_craft_qes_check").expect("Windows QA tool is registered");
+    assert!(def.read_only && !def.destructive);
+    assert_eq!(def.input_schema["required"], json!(["path"]));
+    let sandbox = tempfile::tempdir().expect("sandbox");
+    let mut session = Automation::new().with_root(sandbox.path()).expect("local confinement");
+    let escape = session.call("sign_craft_qes_check", &json!({"path":"../unauthorized.pdf"}));
+    assert!(escape.is_err(), "cannot inspect document outside --root");
+    let path = sandbox.path().join("unsigned.pdf");
+    std::fs::write(&path, numbered_pages(1)).expect("synthetic unsigned PDF");
+    match session.call("sign_craft_qes_check", &json!({"path": path.to_string_lossy()})) {
+        Ok(content) => {
+            let Content::Json(v) = &content[0] else { panic!("unexpected image result") };
+            assert_eq!(v["qes_passed"], false, "unsigned fixture cannot produce QES PASS");
+        }
+        Err(err) => {
+            // An absent publisher approval or offline DSS is a legitimate safe refusal.
+            assert!(!err.to_string().is_empty());
+        }
+    }
+}
 use super::*;
 use pdfcraft_platform::staging::STAGING_ATTEMPTS;
 

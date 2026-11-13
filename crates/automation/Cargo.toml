@@ -35,5 +35,9 @@ pdfcraft-model = { workspace = true }
 pdfcraft-xfa = { workspace = true }
 image = { version = "0.25", default-features = false, features = ["jpeg"] }
 
+[target.'cfg(target_os = "windows")'.dependencies]
+# Read-only qualified-signature verdict from independently approved Craft Signer.
+pdfcraft-sign = { workspace = true }
+
 [target.'cfg(target_os = "macos")'.dev-dependencies]
 rustix = { version = "1", features = ["fs"] }

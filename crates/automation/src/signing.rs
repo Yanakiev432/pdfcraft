@@ -133,6 +133,18 @@ impl Automation {
         }))
     }
 
+    #[cfg(target_os = "windows")]
+    pub(crate) fn sign_craft_qes_check(&self, a: &Args) -> Result<Value> {
+        // A named saved file, independently checked at dispatch. The general
+        // automation root rules are applied before any module discovery or
+        // broker access; never give the broker an unconfined input path.
+        let path = self.resolve(a.str("path")?, false)?;
+        let (verdict, stamp) = pdfcraft_sign::craft_signer_client::verify_pdf(&path).map_err(failed)?;
+        Ok(json!({"message":verdict.message,"qes_passed":verdict.qes_passed,"code":verdict.code,"source_sha256":stamp.sha256(),
+            "verdict_source":"independent_craft_signer_eu_dss",
+            "native_pdfcraft_validation_unchanged":true}))
+    }
+
     pub(crate) fn sign_list(&self, a: &Args) -> Result<Value> {
         let doc = self.doc(a)?;
         let list: Vec<Value> = doc.signatures.iter().map(|s| self.sig_json(a, s)).collect::<Result<_>>()?;

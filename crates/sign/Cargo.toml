@@ -51,6 +51,8 @@ aws-lc-rs = { version = "1.18", default-features = false, features = ["aws-lc-sy
 getrandom = "0.4"
 
 [target.'cfg(target_os = "windows")'.dependencies]
+# Signed local Craft Signer JSON catalog and typed stdio broker client (read-only).
+serde_json = { workspace = true }
 # Safe Windows certificate store and CNG signing wrappers (MIT OR Apache-2.0).
 rustls-cng = { version = "0.7.1", default-features = false }
 

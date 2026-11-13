@@ -827,6 +827,8 @@ impl Automation {
             "model_add" => self.model_add(&a)?,
             "comment_reply" => self.comment_reply(&a)?,
             "comment_set_status" => self.comment_set_status(&a)?,
+            #[cfg(target_os = "windows")]
+            "sign_craft_qes_check" => self.sign_craft_qes_check(&a)?,
             "sign_list" => self.sign_list(&a)?,
             "accessibility_check" => self.a11y_check(&a)?,
             "accessibility_find_untagged" => self.a11y_find_untagged(&a)?,

@@ -8,6 +8,8 @@
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
 pub mod cms;
+#[cfg(target_os = "windows")]
+pub mod craft_signer_client;
 pub mod der;
 pub mod dss;
 mod ec512;

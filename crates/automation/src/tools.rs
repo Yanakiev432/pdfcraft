@@ -980,6 +980,11 @@ pub fn tools() -> Vec<ToolDef> {
             comment_ref(json!({ "status": { "type": "string", "enum": ["none", "accepted", "rejected", "cancelled", "completed"] }, "author": { "type": "string" } })),
             &["doc", "status"],
         )),
+        #[cfg(target_os = "windows")]
+        t("sign_craft_qes_check", "Check saved PDF QES with Craft Signer",
+            "Opt-in read-only independent EU DSS validation via an explicitly publisher-approved, separately installed Craft Signer module. Does not sign, access PIN or create a background service. Requires a saved local PDF and rejects changed files, missing approval and a mismatched signed module.")
+            .ro()
+            .with(schema(json!({ "path": path_arg() }), &["path"])),
         t("sign_list", "List and validate signatures", "Every signature field with its validation: status (valid, unknown = intact but the signer isn't trusted, invalid, unsigned), signer and certificate, date, reason, location, certification level, page and rect, whether PdfCraft draws that state into the signature's own appearance as displayed (verdict_shown; never written to the file), the revision it covers and changes made after signing (none, allowed, disallowed), with Acrobat-style explanations.")
             .ro()
             .with(schema(json!({ "doc": doc() }), &["doc"])),
