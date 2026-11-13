@@ -30,22 +30,30 @@ Signer package: locally signed Craft Signer Module 0.2.1-qa, accepted in disposa
 
 * `cargo check -p pdfcraft-sign -p pdfcraft-automation -p pdfcraft-ui-egui --locked --offline`: PASS, exit 0.
 * `cargo test -p pdfcraft-sign craft_signer_client::tests --lib --locked --offline`:
-  **PASS: 9/9**, covering positive and negative verdicts, mismatched UUID,
+  **PASS: 10/10**, covering positive and negative verdicts, mismatched UUID,
   network paths, catalog leaf constraints and changed PDF bytes.
+* Windows automation integration/root-confinement test: PASS, exit 0;
+  rejects traversal; accepts canonical DOS file resolution; fails closed when the
+  module-specific approved publisher is not installed.
+* pdfcraft-cli v0.21.1 compiled with MCP enabled: PASS, exit 0.
+* CLI real-process synthetic PDF smoke: 7/7 PASS. The tool is discoverable,
+  the PDF opens, out-of-root files are refused, the missing publisher policy
+  gives the correct denial, and exact SHA-256 and live module state are untouched.
+* The Windows canonical extended-drive-path bug was repaired: local drive
+  aliases normalize to ordinary DOS paths for the C# broker; UNC, device
+  volumes, junctions and symlinks remain rejected.
 * The signed standalone 0.2.1 installer and disposable uninstall acceptance are
   separately documented in the signer repo's
   `docs/CRAFT_SIGNER_V021_SIGNED_PACKAGE_QA_20261113.md`.
 
 ## Gates before end-to-end acceptance and release
 
-1. Confirm the headless tool's own integration/root-confinement test PASS.
-2. Run a CLI tool-table discovery and fail-closed test using a synthetic saved PDF.
-3. Obtain explicit publisher approval and register the separately signed module
+1. Obtain explicit publisher approval and register the separately signed module
    on the authorized Windows host; do **not** fabricate a policy or install trust roots.
-4. Configure the pinned HTTPS 127.0.0.1 EU DSS validator with current policies.
-5. Validate a real authorized B-Trust signed PDF via the installed module, both
+2. Configure the pinned HTTPS 127.0.0.1 EU DSS validator with current policies.
+3. Validate a real authorized B-Trust signed PDF via the installed module, both
    `pdfcraft-cli run` and the native Signatures UI; compare exact file hashes.
-6. Exercise app updates, module rotation/rollback, negative GUI behaviour and
+4. Exercise app updates, module rotation/rollback, negative GUI behaviour and
    CI acceptance before requesting official upstream host support.
 
 Do not mark an installed or public product PASS based on these source QA tests.

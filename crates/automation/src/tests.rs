@@ -16,8 +16,14 @@ fn craft_signer_qes_tool_is_read_only_root_confined_and_fail_closed() {
             assert_eq!(v["qes_passed"], false, "unsigned fixture cannot produce QES PASS");
         }
         Err(err) => {
-            // An absent publisher approval or offline DSS is a legitimate safe refusal.
-            assert!(!err.to_string().is_empty());
+            // The path itself must have survived canonical Windows --root
+            // handling; the only expected refusals are signer/module trust
+            // and verifier availability, never a mistaken "network device".
+            let message = err.to_string();
+            assert!(
+                message.contains("Craft Signer") || message.contains("publisher") || message.contains("module") || message.contains("DSS"),
+                "unexpected reason for refusal: {message}"
+            );
         }
     }
 }

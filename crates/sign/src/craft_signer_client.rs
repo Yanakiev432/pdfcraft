@@ -33,6 +33,7 @@ impl FileStamp {
         &self.sha256
     }
     pub fn read(path: &Path) -> Result<Self, String> {
+        guarded_path(path)?;
         let before = fs::metadata(path).map_err(|_| "Cannot read saved PDF metadata")?;
         if !before.is_file() || before.len() > MAX_PDF {
             return Err("PDF must be a local file smaller than 64 MiB".into());
@@ -47,15 +48,26 @@ impl FileStamp {
     }
 }
 
-fn guarded_path(path: &Path) -> Result<(), String> {
-    if !path.is_absolute() {
-        return Err("An absolute local path is required".into());
-    }
-    let s = path.to_string_lossy();
-    if s.starts_with(r"\\") || s.starts_with(r"\\?\") {
+/// Windows canonicalize produces \\?\C:\... for normal local files.
+/// Permit only a DOS drive path and strip that extended prefix *before*
+/// handing the path to the C# broker, which deliberately rejects device paths.
+fn local_dos_path(path: &Path) -> Result<PathBuf, String> {
+    let value = path.to_str().ok_or("Non-Unicode local path is not supported")?;
+    let dos = value.strip_prefix(r"\\?\").unwrap_or(value);
+    let bytes = dos.as_bytes();
+    if bytes.len() < 3 || !bytes[0].is_ascii_alphabetic() || bytes[1] != b':' || !matches!(bytes[2], b'\\' | b'/') {
         return Err("Network and device paths are not permitted".into());
     }
-    for p in path.ancestors() {
+    let normalized = PathBuf::from(dos);
+    if !normalized.is_absolute() {
+        return Err("An absolute local path is required".into());
+    }
+    Ok(normalized)
+}
+
+fn guarded_path(path: &Path) -> Result<(), String> {
+    let local = local_dos_path(path)?;
+    for p in local.ancestors() {
         if p.as_os_str().is_empty() {
             break;
         }
@@ -294,7 +306,7 @@ pub fn verify_pdf(path: &Path) -> Result<(Verdict, FileStamp), String> {
     let (broker, locked) = approved_broker()?;
     let request_id = uuid4()?;
     let request = json!({"protocolMajor":1,"requestId":request_id,"action":"document.verify",
-        "document":{"kind":"pdf","sourcePath":path.to_string_lossy(),"sha256AtDispatch":before.sha256,"saved":true,"dirty":false}});
+        "document":{"kind":"pdf","sourcePath":local_dos_path(path)?.to_string_lossy(),"sha256AtDispatch":before.sha256,"saved":true,"dirty":false}});
     let mut child = Command::new(&broker)
         .creation_flags(CREATE_NO_WINDOW)
         .stdin(Stdio::piped())
@@ -371,6 +383,14 @@ mod tests {
         let result = reply_status(&v, "test", "abcd").expect("unknown errors are safe negative verdicts");
         assert_eq!(result.code, "VERIFICATION_UNAVAILABLE");
         assert!(!result.qes_passed);
+    }
+    #[test]
+    fn canonical_local_drive_path_is_not_a_network_device() {
+        let canonical = local_dos_path(Path::new(r"\\?\C:\sandbox\document.pdf")).expect("local extended DOS path");
+        assert_eq!(canonical.to_string_lossy(), r"C:\sandbox\document.pdf");
+        assert!(local_dos_path(Path::new(r"\\?\UNC\server\share\document.pdf")).is_err());
+        assert!(local_dos_path(Path::new(r"\\.\PhysicalDrive0")).is_err());
+        assert!(local_dos_path(Path::new(r"\\server\share\document.pdf")).is_err());
     }
     #[test]
     fn network_path_rejected_before_any_document_access() {
