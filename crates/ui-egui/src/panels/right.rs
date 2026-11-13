@@ -8,6 +8,8 @@ use super::{
 pub fn right_panel(app: &mut PdfCraftApp, ui: &mut egui::Ui) {
     let t = Tokens::get(ui.ctx());
     let Some((index, id)) = app.active_ids() else { return };
+    #[cfg(target_os = "windows")]
+    let signer_unsaved = app.has_unsaved_work(index);
     let Some(panel) = app.right else { return };
     let mut nav: Option<Nav> = None;
     let mut close = false;
@@ -20,6 +22,8 @@ pub fn right_panel(app: &mut PdfCraftApp, ui: &mut egui::Ui) {
     let mut field_properties = None;
     let mut panel_command: Option<&'static str> = None;
     let mut sig_action: Option<crate::sign_ui::PanelAction> = None;
+    #[cfg(target_os = "windows")]
+    let mut craft_signer_requested = false;
     let mut a11y_action: Option<crate::a11y_ui::PanelAction> = None;
     let mut compare_action: Option<crate::compare_ui::PanelAction> = None;
     let mut bm_rename = app.bookmark_rename.clone();
@@ -35,6 +39,8 @@ pub fn right_panel(app: &mut PdfCraftApp, ui: &mut egui::Ui) {
         let view = &mut app.views[index];
         let prefs = &app.comment_prefs;
         let sig_expanded = &mut app.sig_expanded;
+        #[cfg(target_os = "windows")]
+        let craft_signer = &mut app.craft_signer;
         let a11y = &mut app.a11y;
         let tags_state = &mut app.tags_state;
         let compare = &app.compare;
@@ -291,6 +297,30 @@ pub fn right_panel(app: &mut PdfCraftApp, ui: &mut egui::Ui) {
                     }
                     RightPanel::Signatures => {
                         sig_action = crate::sign_ui::panel(ui, &t, &doc.signatures, sig_expanded);
+                        #[cfg(target_os = "windows")]
+                        {
+                            craft_signer.poll();
+                            if craft_signer.pending {
+                                ui.ctx().request_repaint_after(std::time::Duration::from_millis(250));
+                            }
+                            ui.separator();
+                            if ui
+                                .add_enabled(!craft_signer.pending, egui::Button::new("Check QES with Craft Signer (QA)"))
+                                .on_hover_text("Explicit read-only verification with a separately installed, signed Craft Signer module.")
+                                .clicked()
+                            {
+                                craft_signer_requested = true;
+                            }
+                            if craft_signer.checked_path.as_deref() == doc.path.as_deref() && !craft_signer.message.is_empty() {
+                                if signer_unsaved {
+                                    ui.label("Save changes before checking QES.");
+                                } else if !craft_signer.unchanged(doc.path.as_deref()) {
+                                    ui.label("PDF changed since verification. Run a new check.");
+                                } else {
+                                    ui.label(&craft_signer.message);
+                                }
+                            }
+                        }
                     }
                     RightPanel::Accessibility => {
                         a11y_action = crate::a11y_ui::panel(ui, &t, a11y, id);
@@ -419,6 +449,13 @@ pub fn right_panel(app: &mut PdfCraftApp, ui: &mut egui::Ui) {
                     }
                 });
             });
+    }
+    #[cfg(target_os = "windows")]
+    if craft_signer_requested {
+        let doc = app.session.get(id);
+        let path = doc.and_then(|d| d.path.as_deref()).map(str::to_owned);
+        let dirty = signer_unsaved;
+        crate::craft_signer::start(&mut app.craft_signer, path.as_deref(), dirty);
     }
     if close {
         app.choose_right_panel(None);

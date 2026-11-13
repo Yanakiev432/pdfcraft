@@ -55,6 +55,8 @@ pub use sign_ui::{DigitalIdEntry, SignDraft, SignGraphic, SignStep};
 mod bidi;
 mod dialogs;
 pub use edit_text_ui::{CropMode, DragTarget, ImageDrag, ImageHandle, ImageSelection};
+#[cfg(target_os = "windows")]
+mod craft_signer;
 mod editing;
 mod home;
 mod hotbar;
@@ -615,6 +617,8 @@ pub struct PdfCraftApp {
     pub digital_ids: Vec<DigitalIdEntry>,
     /// Signatures panel: expanded entries (field names).
     pub sig_expanded: Vec<String>,
+    #[cfg(target_os = "windows")]
+    pub(crate) craft_signer: craft_signer::State,
     /// Accessibility Checker: options, the last check, and rules skipped by hand.
     pub a11y_options: a11y_ui::A11yOptions,
     /// Scan & OCR: the Recognize Text choices, the running job, and (tests) run it inline.

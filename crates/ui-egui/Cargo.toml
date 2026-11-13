@@ -80,6 +80,9 @@ plist = "1.10"
 rustix = { version = "1", features = ["fs"] }
 
 [target.'cfg(windows)'.dependencies]
+# Opt-in local module broker bridge; no network listener or token handling.
+pdfcraft-sign = { workspace = true }
+sha2 = "0.11"
 # Auto interface language: the Windows display language, without starting a process.
 sys-locale = "0.3"
 # Region ▸ Measurement system for the default Units, read from the registry without starting reg.exe;

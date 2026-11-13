@@ -226,6 +226,8 @@ impl PdfCraftApp {
             presign: None,
             digital_ids: Vec::new(),
             sig_expanded: Vec::new(),
+            #[cfg(target_os = "windows")]
+            craft_signer: Default::default(),
             a11y_options: a11y_ui::A11yOptions::default(),
             ocr_draft: ocr_ui::OcrDraft::default(),
             ocr_run: None,
