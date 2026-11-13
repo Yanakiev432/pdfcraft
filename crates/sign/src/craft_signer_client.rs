@@ -129,6 +129,65 @@ fn lower_hex(bytes: &[u8]) -> String {
 fn sha(bytes: &[u8]) -> String {
     lower_hex(&Sha256::digest(bytes))
 }
+fn authenticate_signed_manifest(
+    manifest_bytes: &[u8],
+    manifest_signature: &[u8],
+    publisher_bytes: &[u8],
+    publisher_key: &str,
+) -> Result<Value, String> {
+    let signed: Value = serde_json::from_slice(manifest_bytes).map_err(|_| "Invalid signed manifest JSON")?;
+    let cert = Certificate::parse(publisher_bytes).map_err(|_| "Invalid publisher certificate")?;
+    if sha(&cert.public_key.spki()) != publisher_key.to_ascii_lowercase() {
+        return Err("Approved public key does not match the signer".into());
+    }
+    let now = SystemTime::now().duration_since(UNIX_EPOCH).map_err(|_| "Invalid system time")?.as_secs() as i64;
+    if now < cert.not_before.unix() || now > cert.not_after.unix() {
+        return Err("Publisher certificate is not currently valid".into());
+    }
+    // The generic CMS parser exposes the first signer; demand exactly one.
+    let cms_der = Tlv::parse_all(manifest_signature).map_err(|_| "Invalid signed catalog DER")?;
+    let ci = cms_der.children().map_err(|_| "Invalid signed catalog ContentInfo")?;
+    let sd = ci
+        .get(1)
+        .ok_or("Missing signed catalog data")?
+        .inner()
+        .map_err(|_| "Invalid signed catalog data")?
+        .children()
+        .map_err(|_| "Invalid signed catalog fields")?;
+    let infos = sd.last().ok_or("Missing signerInfos")?.children().map_err(|_| "Invalid signerInfos")?;
+    if infos.len() != 1 {
+        return Err("Exactly one publisher signature is required".into());
+    }
+    let cms = cms::SignedData::parse(manifest_signature).map_err(|_| "Cannot parse CMS catalog signature")?;
+    if cms.content.is_some() {
+        return Err("Signed module catalog unexpectedly embeds content".into());
+    }
+    if cms.econtent_type != cms::DATA {
+        return Err("Signed module catalog has an unexpected content type".into());
+    }
+    if cms.signer.digest != DigestAlg::Sha256 {
+        return Err("Signed module catalog has an unapproved digest algorithm".into());
+    }
+    let content_hash = Sha256::digest(manifest_bytes);
+    // RFC 5652 permits a detached id-data signature without signedAttrs:
+    // it then signs the content digest directly. A message-digest attribute
+    // is mandatory *when signedAttrs exist*; never accept unsigned attributes
+    // as a substitute for a cryptographically checked signature.
+    if cms.signer.signed_attrs.is_some() {
+        if cms.signer.message_digest.as_deref() != Some(content_hash.as_slice()) {
+            return Err("Signed module catalog content digest does not match the manifest".into());
+        }
+    } else if cms.signer.message_digest.is_some() {
+        return Err("Unexpected unsigned message digest attribute in module catalog".into());
+    }
+    if cms.signer_certificate().is_none_or(|c| c.raw != publisher_bytes) {
+        return Err("Signed module catalog signer certificate did not match publisher".into());
+    }
+    if cms.verify_signature(&cert, &content_hash).ok() != Some(true) {
+        return Err("Signed module catalog cryptographic signature failed".into());
+    }
+    Ok(signed)
+}
 
 /// Fail closed before CreateProcess: the module is under a fixed owner-specific
 /// directory, with a locally approved publisher key and a signed manifest.
@@ -160,41 +219,9 @@ fn approved_broker() -> Result<(PathBuf, File), String> {
     let release = module.join("releases").join(leaf);
     guarded_path(&release)?;
     let manifest_bytes = read_bounded(&release.join("manifest.json"), 16384)?;
-    let signed: Value = serde_json::from_slice(&manifest_bytes).map_err(|_| "Invalid signed manifest JSON")?;
     let manifest_signature = read_bounded(&release.join("manifest.p7s"), 65536)?;
     let publisher_bytes = read_bounded(&release.join("publisher.cer"), 16384)?;
-    let cert = Certificate::parse(&publisher_bytes).map_err(|_| "Invalid publisher certificate")?;
-    if sha(&cert.public_key.spki()) != publisher_key.to_ascii_lowercase() {
-        return Err("Approved public key does not match the signer".into());
-    }
-    let now = SystemTime::now().duration_since(UNIX_EPOCH).map_err(|_| "Invalid system time")?.as_secs() as i64;
-    if now < cert.not_before.unix() || now > cert.not_after.unix() {
-        return Err("Publisher certificate is not currently valid".into());
-    }
-    // The generic CMS parser exposes the first signer; demand exactly one.
-    let cms_der = Tlv::parse_all(&manifest_signature).map_err(|_| "Invalid signed catalog DER")?;
-    let ci = cms_der.children().map_err(|_| "Invalid signed catalog ContentInfo")?;
-    let sd = ci
-        .get(1)
-        .ok_or("Missing signed catalog data")?
-        .inner()
-        .map_err(|_| "Invalid signed catalog data")?
-        .children()
-        .map_err(|_| "Invalid signed catalog fields")?;
-    let infos = sd.last().ok_or("Missing signerInfos")?.children().map_err(|_| "Invalid signerInfos")?;
-    if infos.len() != 1 {
-        return Err("Exactly one publisher signature is required".into());
-    }
-    let cms = cms::SignedData::parse(&manifest_signature).map_err(|_| "Cannot parse CMS catalog signature")?;
-    if cms.content.is_some()
-        || cms.econtent_type != cms::DATA
-        || cms.signer.digest != DigestAlg::Sha256
-        || cms.signer.message_digest.as_deref() != Some(Sha256::digest(&manifest_bytes).as_slice())
-        || cms.signer_certificate().is_none_or(|c| c.raw != publisher_bytes)
-        || cms.verify_signature(&cert, &Sha256::digest(&manifest_bytes)).ok() != Some(true)
-    {
-        return Err("Signed module catalog authentication failed".into());
-    }
+    let signed = authenticate_signed_manifest(&manifest_bytes, &manifest_signature, &publisher_bytes, publisher_key)?;
     if field(&signed, "schema")? != "craft.signer/module-preview-v2"
         || field(&signed, "moduleId")? != MOD_ID
         || field(&signed, "moduleVersion")? != field(&registration, "moduleVersion")?
@@ -407,6 +434,40 @@ mod tests {
         assert_ne!(a.sha256(), b.sha256());
     }
 
+    /// Interop QA: exercise the *same* authenticated parser against the actual
+    /// detached CMS catalog created by the .NET 8 signer on authorized Windows.
+    /// The files hold only a public certificate, a manifest and a signature.
+    #[test]
+    #[ignore = "requires the locally signed .NET QA package public catalog"]
+    fn dotnet_signed_catalog_matches_independent_parser() {
+        let root =
+            PathBuf::from(std::env::var_os("CRAFT_SIGNER_DOTNET_CMS_QA_DIR").expect("set CRAFT_SIGNER_DOTNET_CMS_QA_DIR to signed ModuleV2/Package"));
+        let manifest = read_bounded(&root.join("manifest.json"), 16384).expect("manifest");
+        let sig = read_bounded(&root.join("manifest.p7s"), 65536).expect("CMS signature");
+        let publisher = read_bounded(&root.join("publisher.cer"), 16384).expect("public cert");
+        let cert = Certificate::parse(&publisher).expect("X.509");
+        let pin = sha(&cert.public_key.spki());
+
+        let signed = authenticate_signed_manifest(&manifest, &sig, &publisher, &pin).expect(".NET detached CMS accepted by independent Rust checker");
+        assert_eq!(signed["moduleVersion"], "0.2.2-qa");
+        assert_eq!(signed["protocolMajor"], 1);
+        assert_eq!(signed["workers"].as_array().map(Vec::len), Some(3));
+
+        let mut altered_manifest = manifest.clone();
+        altered_manifest[0] ^= 1;
+        assert!(authenticate_signed_manifest(&altered_manifest, &sig, &publisher, &pin).is_err());
+
+        let mut altered_signature = sig.clone();
+        let end = altered_signature.len() - 1;
+        altered_signature[end] ^= 1;
+        assert!(authenticate_signed_manifest(&manifest, &altered_signature, &publisher, &pin).is_err());
+
+        assert!(authenticate_signed_manifest(&manifest, &sig, &publisher, &"0".repeat(64)).is_err());
+        let mut altered_certificate = publisher.clone();
+        let end = altered_certificate.len() - 1;
+        altered_certificate[end] ^= 1;
+        assert!(authenticate_signed_manifest(&manifest, &sig, &altered_certificate, &pin).is_err());
+    }
     #[test]
     fn release_paths_reject_traversal() {
         for s in ["../other", ".staging-bad", r"c:\tmp", "x/y", "", "a_b"] {
