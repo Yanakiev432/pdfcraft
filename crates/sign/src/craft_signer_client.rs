@@ -1,24 +1,24 @@
 //! Verified client for an explicitly installed, publisher-approved Craft Signer.
 //! Windows-only. Does not sign documents, use a token PIN or start any service.
+#[cfg(test)]
 use crate::{Certificate, DigestAlg, cms, der::Tlv};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
+#[cfg(test)]
+use std::time::UNIX_EPOCH;
 use std::{
-    fs::{self, File, OpenOptions},
+    fs::{self, File},
     io::{Read, Write},
-    os::windows::{
-        fs::{MetadataExt, OpenOptionsExt},
-        process::CommandExt,
-    },
+    os::windows::{fs::MetadataExt, process::CommandExt},
     path::{Path, PathBuf},
     process::{Command, Stdio},
-    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
+    time::{Duration, Instant, SystemTime},
 };
-const MOD_ID: &str = "org.craftopensource.signer";
+
 const MAX_PDF: u64 = 64 * 1024 * 1024;
-const MAX_EXE: u64 = 160 * 1024 * 1024;
+
 const REPARSE_POINT: u32 = 0x400;
-const FILE_SHARE_READ: u32 = 1;
+
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 const BROKER_TIMEOUT: Duration = Duration::from_secs(90);
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -88,15 +88,21 @@ fn digest_file(path: &Path, max: u64) -> Result<String, String> {
     }
     let mut hash = Sha256::new();
     let mut buf = [0u8; 65_536];
+    let mut total = 0_u64;
     loop {
         let n = f.read(&mut buf).map_err(|_| "File read failed")?;
         if n == 0 {
             break;
         }
+        total = total.checked_add(n as u64).ok_or("PDF size overflow while hashing")?;
+        if total > max {
+            return Err("PDF exceeded the 64 MiB limit while hashing".into());
+        }
         hash.update(&buf[..n]);
     }
     Ok(lower_hex(&hash.finalize()))
 }
+#[cfg(test)]
 fn read_bounded(path: &Path, max: u64) -> Result<Vec<u8>, String> {
     guarded_path(path)?;
     let file = File::open(path).map_err(|_| "A signed module file is missing")?;
@@ -113,22 +119,19 @@ fn read_bounded(path: &Path, max: u64) -> Result<Vec<u8>, String> {
 fn field<'a>(v: &'a Value, name: &str) -> Result<&'a str, String> {
     v.get(name).and_then(Value::as_str).ok_or_else(|| format!("Missing module field: {name}"))
 }
-fn is_hex64(s: &str) -> bool {
-    s.len() == 64 && s.as_bytes().iter().all(u8::is_ascii_hexdigit)
-}
+#[cfg(test)]
 fn release_leaf(s: &str) -> bool {
     s.len() <= 70 && !s.is_empty() && !s.starts_with('.') && s.bytes().all(|c| c.is_ascii_alphanumeric() || c == b'.' || c == b'-')
-}
-fn parse_json(path: &Path, max: u64) -> Result<Value, String> {
-    serde_json::from_slice(&read_bounded(path, max)?).map_err(|_| "Invalid module JSON".into())
 }
 fn lower_hex(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
+#[cfg(test)]
 fn sha(bytes: &[u8]) -> String {
     lower_hex(&Sha256::digest(bytes))
 }
+#[cfg(test)]
 fn authenticate_signed_manifest(
     manifest_bytes: &[u8],
     manifest_signature: &[u8],
@@ -189,89 +192,11 @@ fn authenticate_signed_manifest(
     Ok(signed)
 }
 
-/// Fail closed before CreateProcess: the module is under a fixed owner-specific
-/// directory, with a locally approved publisher key and a signed manifest.
-fn approved_broker() -> Result<(PathBuf, File), String> {
-    let local = std::env::var_os("LOCALAPPDATA").ok_or("LOCALAPPDATA is unavailable")?;
-    let root = PathBuf::from(local).join("Craft").join("Extensions");
-    let policy = parse_json(&root.join("_trust").join("org.craftopensource.signer.json"), 8192)
-        .map_err(|_| "Craft Signer is not installed with approved publisher policy")?;
-    if field(&policy, "schema")? != "craft.signer/local-developer-approval/1" || field(&policy, "moduleId")? != MOD_ID {
-        return Err("Publisher approval policy is not valid".into());
-    }
-    let publisher_key = field(&policy, "keySha256")?;
-    if !is_hex64(publisher_key) {
-        return Err("Invalid approved publisher key".into());
-    }
-
-    let module = root.join(MOD_ID);
-    let registration = parse_json(&module.join("current.json"), 8192).map_err(|_| "No independently installed Craft Signer module was found")?;
-    if field(&registration, "moduleId")? != MOD_ID
-        || registration.get("protocolMajor").and_then(Value::as_u64) != Some(1)
-        || !field(&registration, "publisherPublicKeySha256")?.eq_ignore_ascii_case(publisher_key)
-    {
-        return Err("Current module registration is not approved".into());
-    }
-    let leaf = field(&registration, "releaseDirectory")?;
-    if !release_leaf(leaf) {
-        return Err("Invalid signer release path".into());
-    }
-    let release = module.join("releases").join(leaf);
-    guarded_path(&release)?;
-    let manifest_bytes = read_bounded(&release.join("manifest.json"), 16384)?;
-    let manifest_signature = read_bounded(&release.join("manifest.p7s"), 65536)?;
-    let publisher_bytes = read_bounded(&release.join("publisher.cer"), 16384)?;
-    let signed = authenticate_signed_manifest(&manifest_bytes, &manifest_signature, &publisher_bytes, publisher_key)?;
-    if field(&signed, "schema")? != "craft.signer/module-preview-v2"
-        || field(&signed, "moduleId")? != MOD_ID
-        || field(&signed, "moduleVersion")? != field(&registration, "moduleVersion")?
-        || signed.get("protocolMajor").and_then(Value::as_u64) != Some(1)
-    {
-        return Err("Unsupported or changed signed module manifest".into());
-    }
-    let expected_leaf = format!("{}-{}", field(&signed, "moduleVersion")?, sha(&manifest_bytes)[..16].to_ascii_uppercase());
-    if leaf != expected_leaf {
-        return Err("Signed catalog does not match registered release directory".into());
-    }
-    let actions = signed.get("actions").and_then(Value::as_array).ok_or("Missing signed command list")?;
-    if actions.as_slice() != [json!("document.sign"), json!("document.verify")] {
-        return Err("Signed module command list is not approved".into());
-    }
-    let workers = signed.get("workers").and_then(Value::as_array).ok_or("Missing signed worker list")?;
-    if workers.len() != 3 {
-        return Err("Signed module must have three executables".into());
-    }
-    for name in ["craft-signer-broker.exe", "wordcraft-cli.exe", "gridcraft-cli.exe"] {
-        if workers.iter().filter(|w| w.get("file").and_then(Value::as_str) == Some(name)).count() != 1 {
-            return Err("Signed worker catalog mismatch".into());
-        }
-    }
-    let worker =
-        workers.iter().find(|w| w.get("file").and_then(Value::as_str) == Some("craft-signer-broker.exe")).ok_or("Signed broker not listed")?;
-    let expected = field(worker, "sha256")?;
-    if !is_hex64(expected) {
-        return Err("Invalid signed broker SHA-256".into());
-    }
-    let broker = release.join("craft-signer-broker.exe");
-    guarded_path(&broker)?;
-    // Keep a no-write/no-delete share lock until the process starts.
-    let mut locked = OpenOptions::new().read(true).share_mode(FILE_SHARE_READ).open(&broker).map_err(|_| "Cannot lock signed broker executable")?;
-    if locked.metadata().map_err(|_| "Cannot stat signed broker")?.len() > MAX_EXE {
-        return Err("Signed broker exceeds size limit".into());
-    }
-    let mut digest = Sha256::new();
-    let mut buf = [0u8; 65_536];
-    loop {
-        let n = locked.read(&mut buf).map_err(|_| "Cannot read signed broker")?;
-        if n == 0 {
-            break;
-        }
-        digest.update(&buf[..n]);
-    }
-    if lower_hex(&digest.finalize()) != expected.to_ascii_lowercase() {
-        return Err("Signed broker executable has been changed".into());
-    }
-    Ok((broker, locked))
+/// Use the one audited host resolver shared with WordCraft and GridCraft.
+/// It verifies publisher approval, detached CMS, a minimum v0.2.2 release,
+/// and keeps all three signed executable hashes locked before CreateProcess.
+fn approved_broker() -> Result<craft_signing_core::installed_broker::VerifiedInstalledBroker, String> {
+    craft_signing_core::installed_broker::resolve_installed_broker()
 }
 fn uuid4() -> Result<String, String> {
     let mut b = [0u8; 16];
@@ -330,11 +255,11 @@ pub fn verify_pdf(path: &Path) -> Result<(Verdict, FileStamp), String> {
         return Err("Craft Signer accepts only PDF documents".into());
     }
     let before = FileStamp::read(path)?;
-    let (broker, locked) = approved_broker()?;
+    let authenticated = approved_broker()?;
     let request_id = uuid4()?;
     let request = json!({"protocolMajor":1,"requestId":request_id,"action":"document.verify",
         "document":{"kind":"pdf","sourcePath":local_dos_path(path)?.to_string_lossy(),"sha256AtDispatch":before.sha256,"saved":true,"dirty":false}});
-    let mut child = Command::new(&broker)
+    let mut child = Command::new(authenticated.executable())
         .creation_flags(CREATE_NO_WINDOW)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -342,7 +267,7 @@ pub fn verify_pdf(path: &Path) -> Result<(Verdict, FileStamp), String> {
         .spawn()
         .map_err(|_| "Approved Craft Signer could not start")?;
     // The share lock prevented replacement before CreateProcess.
-    drop(locked);
+    drop(authenticated);
     if let Some(mut stdin) = child.stdin.take() {
         if serde_json::to_writer(&mut stdin, &request).is_err() || stdin.flush().is_err() {
             let _ = child.kill();
@@ -473,7 +398,7 @@ mod tests {
         for s in ["../other", ".staging-bad", r"c:\tmp", "x/y", "", "a_b"] {
             assert!(!release_leaf(s));
         }
-        assert!(release_leaf("0.2.1-qa-abcdef1234567890"));
+        assert!(release_leaf("0.2.2-qa-abcdef1234567890"));
     }
     #[test]
     fn missing_qes_evidence_is_a_safe_failure() {
