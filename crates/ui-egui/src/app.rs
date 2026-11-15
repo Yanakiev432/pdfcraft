@@ -613,6 +613,27 @@ impl PdfCraftApp {
             self.poll_pending_destinations();
         }
         self.check_restored_recent();
+        #[cfg(target_os = "windows")]
+        {
+            // Observe every document switch, including while Signatures is hidden.
+            // Only cheap metadata is read on this UI/logic thread. The 64 MiB
+            // SHA-256 freshness pass runs on a separate worker at most once
+            // per interval, without a GPU renderer or blocking a paint frame.
+            let (path, dirty) = if let Some((index, id)) = self.active_ids() {
+                (
+                    self.session.get(id).and_then(|doc| doc.path.clone()),
+                    self.has_unsaved_work(index),
+                )
+            } else {
+                (None, false)
+            };
+            let signatures_visible = matches!(self.right, Some(RightPanel::Signatures));
+            self.craft_signer.observe(path.as_deref(), dirty, signatures_visible);
+            self.craft_signer.poll();
+            if self.craft_signer.pending || self.craft_signer.freshness_pending() {
+                ctx.request_repaint_after(std::time::Duration::from_millis(250));
+            }
+        }
         // Chinese wants its own faces before the Japanese ones (one baseline per line).
         let cjk = theme::CjkPreference::for_language(lang.code());
         if !self.styled {

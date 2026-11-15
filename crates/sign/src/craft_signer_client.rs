@@ -32,6 +32,20 @@ impl FileStamp {
     pub fn sha256(&self) -> &str {
         &self.sha256
     }
+
+    /// Cheap, fail-closed freshness hint for UI repaint loops. This NEVER
+    /// replaces SHA-256 checking: verify_pdf hashes before and after invoking
+    /// the authenticated broker, and the GUI also re-hashes in a worker.
+    pub fn matches_metadata(&self, path: &Path) -> bool {
+        if guarded_path(path).is_err() {
+            return false;
+        }
+        fs::metadata(path).is_ok_and(|now| {
+            now.is_file()
+                && now.len() == self.size
+                && now.modified().ok() == Some(self.modified)
+        })
+    }
     pub fn read(path: &Path) -> Result<Self, String> {
         guarded_path(path)?;
         let before = fs::metadata(path).map_err(|_| "Cannot read saved PDF metadata")?;

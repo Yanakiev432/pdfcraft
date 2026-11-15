@@ -299,7 +299,7 @@ pub fn right_panel(app: &mut PdfCraftApp, ui: &mut egui::Ui) {
                         sig_action = crate::sign_ui::panel(ui, &t, &doc.signatures, sig_expanded);
                         #[cfg(target_os = "windows")]
                         {
-                            craft_signer.poll();
+                            craft_signer.observe(doc.path.as_deref(), signer_unsaved, true);
                             if craft_signer.pending {
                                 ui.ctx().request_repaint_after(std::time::Duration::from_millis(250));
                             }

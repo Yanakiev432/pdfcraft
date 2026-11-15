@@ -113,3 +113,16 @@ new shared-core revision before rebuilding and passing the final 8/8 run.
 
 This is a source and CLI acceptance only: no production installation,
 user approval, EU DSS service start or real B-Trust QES validation occurred.
+
+## PdfCraft GUI asynchronous freshness QA (15 November 2026)
+
+The existing Certificates/Signatures UI QA button is already connected
+to the shared authenticated Craft Signer resolver. A separate QA branch
+now removes synchronous PDF SHA-256 on every GUI redraw, monitors the
+active document even while the panel is hidden and re-hashes saved
+bytes in a bounded, periodic background worker. Tests on Lenovo:
+4/4 PdfCraft GUI state tests, 10/10 signing client regression tests
+(1 separate opt-in interop test ignored), and offline locked GUI/sign
+cargo check PASS. These are source QA checks, not actual installed
+module or eIDAS QES acceptance. Full limits and checks:
+docs/CRAFT_SIGNER_PDF_GUI_FRESHNESS_QA_20261115.md.
