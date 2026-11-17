@@ -26,7 +26,9 @@
 // Release builds on Windows are GUI-subsystem programs, so launching the app doesn't open a console
 // window next to it (#57). `--version` and diagnostics then go nowhere when started from a terminal
 // (std ignores the missing console handles, so nothing fails); debug builds keep the console.
-#![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
+// Native Windows GUI in both Debug and Release: launching a QA build must never
+// allocate or attach a visible console behind the editor. CLI tools remain separate.
+#![cfg_attr(target_os = "windows", windows_subsystem = "windows")]
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
 use std::cell::Cell;
